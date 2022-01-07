@@ -6,13 +6,16 @@ LINK := $(CC)
 
 all: mimino
 
-mimino:
+mimino: mimino.c
 	$(CC) $(CFLAGS) mimino.c -o $@
 
-fast:
+fast: mimino.c
 	$(CC) $(FAST_CFLAGS) mimino.c -o $@
 
-recvserver addrinfo:
+recvserver: recvserver/recvserver.c
+	$(CC) $(CFLAGS) $@/*.c -o $@/$@
+
+addrinfo: addrinfo/addrinfo.c
 	$(CC) $(CFLAGS) $@/*.c -o $@/$@
 
 clean:

@@ -135,11 +135,11 @@ main(int argc, char **argv)
 
     printf("Bound to %s:%s\n", ip_str, port);
 
-    // Don't block on sockfd (this makes accept() nonblocking)
-    if (fcntl(sockfd, F_SETFL, O_NONBLOCK) != 0) {
-        perror("fcntl()");
-        return 1;
-    }
+    // Don't block on sockfd
+    /* if (fcntl(sockfd, F_SETFL, O_NONBLOCK) != 0) { */
+    /*     perror("fcntl()"); */
+    /*     return 1; */
+    /* } */
 
     // Listen
     err = listen(sockfd, backlog);
@@ -156,8 +156,10 @@ main(int argc, char **argv)
        - close() connection
 
        TODO: Main loop with poll()
-       - accept() connection and add its sockfd to the poll_queue
        - poll() fds in poll_queue for POLLIN
+       - accept() connection and add its sockfd to the poll_queue
+         Make sure that it doesn't block AND it doesn't loop forever and use up
+         CPU if there are no incoming connections
        - for each fd with POLLIN in poll_queue
          - read & print data completely
          -? send() data to fd
@@ -211,6 +213,7 @@ main(int argc, char **argv)
                     /*     fprintf(stderr, "recv() maxtries\n"); */
                     /*     drop_connection = 1; */
                     /* } */
+                    printf("EINTR or EAGAIN\n");
                     continue;
                 case ECONNREFUSED:
                     drop_connection = 1;
@@ -226,6 +229,9 @@ main(int argc, char **argv)
             } else {
                 // Print data
                 print_recvd_data(stdout, buf, BUFSIZE, bytes_recvd);
+                // Check for HTTP end
+                if (strstr(buf, "\r\n\r\n"))
+                    break;
             }
         }
 
