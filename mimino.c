@@ -135,7 +135,7 @@ main(int argc, char **argv)
 
     printf("Bound to %s:%s\n", ip_str, port);
 
-    // Don't block on sockfd
+    // Don't block on sockfd (this makes accept() nonblocking)
     if (fcntl(sockfd, F_SETFL, O_NONBLOCK) != 0) {
         perror("fcntl()");
         return 1;
@@ -148,11 +148,28 @@ main(int argc, char **argv)
         return 1;
     }
 
-    // Accept loop
+    /*
+       Main loop:
+       - accept() connection
+       - recv() data and print it
+       - send() data
+       - close() connection
+
+       TODO: Main loop with poll()
+       - accept() connection and add its sockfd to the poll_queue
+       - poll() fds in poll_queue for POLLIN
+       - for each fd with POLLIN in poll_queue
+         - read & print data completely
+         -? send() data to fd
+         -? if sent completely, poll_queue
+         -? if not sent completely, add it to send_queue with remaining data in a buffer
+       - poll() fds in send_queue for POLLOUT
+    */
     struct sockaddr_storage their_addr;
     socklen_t their_addr_size = sizeof(their_addr);
     int newsock;
     while (1) {
+        // Accept new connection
         newsock = accept(sockfd, (struct sockaddr *)&their_addr, &their_addr_size);
         saved_errno = errno;
         if (newsock == -1) {
@@ -169,15 +186,16 @@ main(int argc, char **argv)
             continue;
         }
 
+        // Print their_addr
         inet_ntop(their_addr.ss_family,
                   get_in_addr((struct sockaddr *)&their_addr),
                   their_ip_str, sizeof(their_ip_str));
-
         printf("Got connection from %s:%d\n", their_ip_str,
                ntohs(get_in_port((struct sockaddr *)&their_addr)));
 
         // Receive
         // TODO: use poll() for recv()
+        // TODO: merge the send() loop with this recv() loop?
         fprintf(stdout, "recv()ing data:\n");
         int drop_connection = 0, maxtries = 5;
         char buf[BUFSIZE];
