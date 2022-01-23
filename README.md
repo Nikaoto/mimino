@@ -5,6 +5,7 @@ WIP http server for educational purposes.
 Needs to be "faster" than nginx before April 1st.
 
 ## TODO
+- GoodSocket by jart: https://github.com/jart/cosmopolitan/blob/master/libc/sock/goodsocket.c
 - read https://developer.mozilla.org/en-US/docs/Web/HTTP
 - HTTP protocol
 - configuration support (in json?)
