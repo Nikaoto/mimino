@@ -1,6 +1,6 @@
 /*
   http server
-  Usage: ./mimino [port] [dir]
+  Usage: ./mimino [port] [dir/file]
   Serves specified directory 'dir' on 'port'.
   Symlinks to files outside 'dir' are allowed.
   Symlinks to directories outside 'dir' are forbidden.
@@ -16,6 +16,7 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <errno.h>
+#include <poll.h>
 
 /*
   getaddrinfo(NULL, port, &hints, &res);
@@ -31,12 +32,13 @@
 */
 
 #define HEXDUMP_DATA 1
-#define BUFSIZE 8
+#define BUFSIZE 10
 
 int sockbind(struct addrinfo *ai);
 void *get_in_addr(struct sockaddr *sa);
 unsigned short get_in_port(struct sockaddr *sa);
 void print_recvd_data(FILE *stream, char *buf, size_t bufsize, size_t nbytes_recvd);
+int find_string_2bufs(char *buf1, char *buf2, char *pat);
 
 int
 main(int argc, char **argv)
@@ -46,6 +48,14 @@ main(int argc, char **argv)
     if (argc >= 2) {
         port = argv[1];
     }
+
+    // Set file to send
+    char *file_name = "README.md";
+    /* size_t file_name_len = 1; */
+    /* if (argc >= 3) { */
+    /*     file_name = argv[2]; */
+    /* } */
+    /* file_name_len = strlen(file_name); */
 
     int backlog = 10;
     int sockfd, saved_errno;
@@ -199,22 +209,24 @@ main(int argc, char **argv)
         // TODO: use poll() for recv()
         // TODO: merge the send() loop with this recv() loop?
         fprintf(stdout, "recv()ing data:\n");
-        int drop_connection = 0, maxtries = 5;
+        int drop_connection = 0, maxtries = 5, request_finished = 0;
+        char last_buf[BUFSIZE];
         char buf[BUFSIZE];
-        for (int tries = 0; drop_connection == 0;) {
+        for (int tries = 0; !drop_connection && !request_finished;) {
             int bytes_recvd = recv(newsock, buf, BUFSIZE, 0);
             if (bytes_recvd == -1) {
                 saved_errno = errno;
 
                 switch (saved_errno) {
-                case EINTR:
                 case EAGAIN:
-                    /* if (tries++ >= maxtries) { */
-                    /*     fprintf(stderr, "recv() maxtries\n"); */
-                    /*     drop_connection = 1; */
-                    /* } */
-                    printf("EINTR or EAGAIN\n");
-                    continue;
+                    break;
+                case EINTR:
+                    if (tries++ >= maxtries) {
+                        fprintf(stderr, "recv() maxtries\n");
+                        drop_connection = 1;
+                    }
+                    printf("EINTR\n");
+                    break;
                 case ECONNREFUSED:
                     drop_connection = 1;
                     perror("recv()");
@@ -230,8 +242,11 @@ main(int argc, char **argv)
                 // Print data
                 print_recvd_data(stdout, buf, BUFSIZE, bytes_recvd);
                 // Check for HTTP end
-                if (strstr(buf, "\r\n\r\n"))
+                if (find_string_2bufs(last_buf, buf, "\r\n\r\n")) {
+                    request_finished = 1;
                     break;
+                }
+                memcpy(last_buf, buf, BUFSIZE);
             }
         }
 
@@ -239,40 +254,89 @@ main(int argc, char **argv)
 
         if (drop_connection) {
             fprintf(stderr, "Client refused connection, dropping\n");
-            close(newsock);
+            goto close;
             continue;
         }
 
         // Send
         // TODO: use poll()
         fprintf(stdout, "send()ing data\n");
-        char *msg = "Hello there!\n";
-        int len = strlen(msg);
-        int bytes_sent = 0;
-        while (bytes_sent < len) {
-            int sent = send(newsock, msg, len, 0);
-            saved_errno = errno;
-            if (sent == -1) {
-                perror("send()");
-                switch (saved_errno) {
-                case EINTR:
-                case EAGAIN:
-                    continue;
-                default:
-                    return 1;
-                }
-            } else if (sent == 0) {
-                close(newsock);
-            } else {
-                bytes_sent += sent;
-            }
+        //int file_fd = open(file_name); // TODO: put this in the poll loop as well
+        char file_buf[16];
+        size_t file_buf_len = sizeof(file_buf) * sizeof(char);
+
+        // Open file
+        FILE *file_handle = fopen(file_name, "r");
+        if (file_handle == NULL) {
+            perror("fopen()");
+            goto close;
         }
 
+        // Start reading and sending it
+        while (1) {
+            size_t bytes_read = fread(file_buf, 1, file_buf_len, file_handle);
+            if (bytes_read == 0) {
+                if (ferror(file_handle)) {
+                    fprintf(stdout, "Error when fread()ing file %s\n", file_name);
+                }
+                break;
+            }
+
+            for (size_t bytes_sent = 0; bytes_sent < bytes_read;) {
+                int sent = send(newsock, file_buf, bytes_read, 0);
+                saved_errno = errno;
+                if (sent == -1) {
+                    perror("send()");
+                    switch (saved_errno) {
+                    case EINTR:
+                    case EAGAIN:
+                        continue;
+                    default:
+                        return 1;
+                    }
+                } else if (sent == 0) {
+                    goto close;
+                } else {
+                    bytes_sent += sent;
+                }
+            }
+
+            if (bytes_read < file_buf_len) {
+                // fread() will return 0, so if we break here, we avoid calling it
+                break;
+            }
+        };
+
+        fclose(file_handle);
+        fprintf(stdout, "Finished fread()ing\n");
+
+        // Send the HTTP end
+        char http_end[4] = {'\r', '\n', '\r', '\n' };
+        size_t http_end_size = sizeof(http_end) * sizeof(char);
+        send(newsock, http_end, http_end_size, 0);
+        /* for (size_t bytes_sent = 0; bytes_sent < http_end_size;) { */
+        /*     int sent = send(newsock, http_end + bytes_sent, http_end_size, 0); */
+        /*     saved_errno = errno; */
+        /*     if (sent == -1) { */
+        /*         perror("send()"); */
+        /*         switch (saved_errno) { */
+        /*         case EINTR: */
+        /*         case EAGAIN: */
+        /*             continue; */
+        /*         default: */
+        /*             return 1; */
+        /*         } */
+        /*     } else if (sent == 0) { */
+        /*         goto close; */
+        /*     } else { */
+        /*         bytes_sent += sent; */
+        /*     } */
+        /* } */
         fprintf(stdout, "Finished send()ing\n");
 
         // Close newsock
-        int closed = 0;
-        while (closed == 0) {
+      close:
+        for (int closed = 0; closed == 0;) {
             err = close(newsock);
             saved_errno = errno;
             if (err != 0) {
@@ -318,7 +382,7 @@ get_in_port(struct sockaddr *sa)
     }
 }
 
-// Calls socket(), setsockopts() and then bind().
+// Calls socket(), setsockopt() and then bind().
 // Returns socket file descriptor on success, -1 on error.
 int
 sockbind(struct addrinfo *ai)
@@ -351,11 +415,23 @@ sockbind(struct addrinfo *ai)
     return s;
 }
 
+// Searches for pat in buf1 concatenated with buf2.
+int find_string_2bufs(char *buf1, char *buf2, char *pat)
+{
+    // TODO: do this without malloc
+    size_t l1 = strlen(buf1), l2 = strlen(buf2);
+    char *b = malloc(l1 + l2);
+    memcpy(b, buf1, l1);
+    memcpy(b + l1 + 1, buf2, l2);
+    int ret = (strstr(b, pat) != NULL);
+    free(b);
+    return ret;
+}
+
 void
 print_recvd_data(FILE *stream, char *buf, size_t bufsize, size_t nbytes_recvd)
 {
 #if HEXDUMP_DATA == 1
-    fprintf(stream, "recv()d %ld bytes: ", nbytes_recvd);
     for (size_t i = 0; i < nbytes_recvd; i++) {
         switch (buf[i]) {
         case '\n':
