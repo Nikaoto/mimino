@@ -228,12 +228,10 @@ main(int argc, char **argv)
                     printf("EINTR\n");
                     break;
                 case ECONNREFUSED:
+                default:
                     drop_connection = 1;
                     perror("recv()");
                     break;
-                default:
-                    perror("recv()");
-                    return 1;
                 }
             } else if (bytes_recvd == 0) {
                 printf("recv() returned 0\n");
@@ -253,7 +251,7 @@ main(int argc, char **argv)
         fprintf(stdout, "Finished recv()\n");
 
         if (drop_connection) {
-            fprintf(stderr, "Client refused connection, dropping\n");
+            fprintf(stderr, "Client refused or error occured, dropping connection\n");
             goto close;
             continue;
         }
@@ -291,8 +289,10 @@ main(int argc, char **argv)
                     case EINTR:
                     case EAGAIN:
                         continue;
+                    case ECONNRESET:
                     default:
-                        return 1;
+                        goto close;
+                        break;
                     }
                 } else if (sent == 0) {
                     goto close;
