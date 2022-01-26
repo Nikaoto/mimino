@@ -31,13 +31,21 @@
   }
 */
 
-#define HEXDUMP_DATA 1
+#ifndef HEXDUMP_DATA
+#define HEXDUMP_DATA 0
+#endif
+
+#ifndef BUFSIZE
 #define BUFSIZE 10
+#endif
 
 int sockbind(struct addrinfo *ai);
+int send_buf(int sock, char *buf, size_t nbytes);
+int send_str(int sock, char *buf);
 void *get_in_addr(struct sockaddr *sa);
 unsigned short get_in_port(struct sockaddr *sa);
-void print_recvd_data(FILE *stream, char *buf, size_t bufsize, size_t nbytes_recvd);
+void hex_dump_line(FILE *stream, char *buf, size_t buf_size, size_t width);
+void dump_data(FILE *stream, char *buf, size_t bufsize, size_t nbytes_recvd);
 int find_string_2bufs(char *buf1, char *buf2, char *pat);
 
 int
@@ -237,8 +245,7 @@ main(int argc, char **argv)
                 printf("recv() returned 0\n");
                 break;
             } else {
-                // Print data
-                print_recvd_data(stdout, buf, BUFSIZE, bytes_recvd);
+                dump_data(stdout, buf, bytes_recvd, BUFSIZE);
                 // Check for HTTP end
                 if (find_string_2bufs(last_buf, buf, "\r\n\r\n")) {
                     request_finished = 1;
@@ -270,7 +277,13 @@ main(int argc, char **argv)
             goto close;
         }
 
-        // Start reading and sending it
+        // Start reading the file and sending it.
+        // This works without loading the entire file into memory.
+        int succ = send_str(newsock, "HTTP/1.0 200");
+        if (!succ) {
+            goto close;
+        }
+
         while (1) {
             size_t bytes_read = fread(file_buf, 1, file_buf_len, file_handle);
             if (bytes_read == 0) {
@@ -280,25 +293,9 @@ main(int argc, char **argv)
                 break;
             }
 
-            for (size_t bytes_sent = 0; bytes_sent < bytes_read;) {
-                int sent = send(newsock, file_buf, bytes_read, 0);
-                saved_errno = errno;
-                if (sent == -1) {
-                    perror("send()");
-                    switch (saved_errno) {
-                    case EINTR:
-                    case EAGAIN:
-                        continue;
-                    case ECONNRESET:
-                    default:
-                        goto close;
-                        break;
-                    }
-                } else if (sent == 0) {
-                    goto close;
-                } else {
-                    bytes_sent += sent;
-                }
+            int succ = send_buf(newsock, file_buf, bytes_read);
+            if (!succ) {
+                goto close;
             }
 
             if (bytes_read < file_buf_len) {
@@ -311,27 +308,10 @@ main(int argc, char **argv)
         fprintf(stdout, "Finished fread()ing\n");
 
         // Send the HTTP end
-        char http_end[4] = {'\r', '\n', '\r', '\n' };
-        size_t http_end_size = sizeof(http_end) * sizeof(char);
-        send(newsock, http_end, http_end_size, 0);
-        /* for (size_t bytes_sent = 0; bytes_sent < http_end_size;) { */
-        /*     int sent = send(newsock, http_end + bytes_sent, http_end_size, 0); */
-        /*     saved_errno = errno; */
-        /*     if (sent == -1) { */
-        /*         perror("send()"); */
-        /*         switch (saved_errno) { */
-        /*         case EINTR: */
-        /*         case EAGAIN: */
-        /*             continue; */
-        /*         default: */
-        /*             return 1; */
-        /*         } */
-        /*     } else if (sent == 0) { */
-        /*         goto close; */
-        /*     } else { */
-        /*         bytes_sent += sent; */
-        /*     } */
-        /* } */
+        int succ = send_str(newsock, "\r\n\r\n");
+        if (!succ) {
+            goto close;
+        }
         fprintf(stdout, "Finished send()ing\n");
 
         // Close newsock
@@ -415,8 +395,43 @@ sockbind(struct addrinfo *ai)
     return s;
 }
 
+int
+send_buf(int sock, char *buf, size_t nbytes)
+{
+    for (size_t nbytes_sent = 0; nbytes_sent < nbytes;) {
+        int sent = send(sock, buf, nbytes, 0);
+        int saved_errno = errno;
+        if (sent == -1) {
+            perror("send()");
+            switch (saved_errno) {
+            case EINTR:
+            case EAGAIN:
+                continue;
+            case ECONNRESET:
+            default:
+                return 0;
+                break;
+            }
+        } else if (sent == 0) {
+            return 0;
+        } else {
+            nbytes_sent += sent;
+        }
+    }
+
+    return 1;
+}
+
+int
+send_str(int sock, char *buf)
+{
+    size_t len = strlen(buf);
+    return send_buf(sock, buf, len);
+}
+
 // Searches for pat in buf1 concatenated with buf2.
-int find_string_2bufs(char *buf1, char *buf2, char *pat)
+int
+find_string_2bufs(char *buf1, char *buf2, char *pat)
 {
     // TODO: do this without malloc
     size_t l1 = strlen(buf1), l2 = strlen(buf2);
@@ -429,10 +444,9 @@ int find_string_2bufs(char *buf1, char *buf2, char *pat)
 }
 
 void
-print_recvd_data(FILE *stream, char *buf, size_t bufsize, size_t nbytes_recvd)
+hex_dump_line(FILE *stream, char *buf, size_t buf_size, size_t width)
 {
-#if HEXDUMP_DATA == 1
-    for (size_t i = 0; i < nbytes_recvd; i++) {
+    for (size_t i = 0; i < buf_size; i++) {
         switch (buf[i]) {
         case '\n':
             fprintf(stream, "\\n");
@@ -450,21 +464,60 @@ print_recvd_data(FILE *stream, char *buf, size_t bufsize, size_t nbytes_recvd)
         }
     }
 
-    // Pad data with spaces
-    for (size_t i = nbytes_recvd; i < bufsize; i++) {
+    // Pad the ascii with spaces to fill width
+    for (size_t i = buf_size; i < width; i++) {
         putc(' ', stream);
         putc(' ', stream);
     }
 
-    // Hexdump data
+    // Hexdump
     fprintf(stream, " | ");
-    for (size_t i = 0; i < nbytes_recvd; i++) {
+    for (size_t i = 0; i < buf_size; i++) {
         fprintf(stream, "%02X ", buf[i]);
     }
     putc('\n', stream);
-#else // #if HEXDUMP_DATA == 1
-    for (size_t i = 0; i < nbytes_recvd; i++) {
-        putc(buf[i], stream);
+}
+
+void
+ascii_dump_buf(FILE *stream, char *buf, size_t buf_size, size_t delim_width)
+{
+    /* char delim = '-'; */
+
+    /* for (size_t i = 0; i < delim_width; i++) { */
+    /*     putc(delim, stream); */
+    /* } */
+    /* putc('\n', stream); */
+
+    for (size_t i = 0; i < buf_size; i++) {
+        switch (buf[i]) {
+        case '\n':
+            fprintf(stream, "\\n\n");
+            break;
+        case '\t':
+            fprintf(stream, "\\t");
+            break;
+        case '\r':
+            fprintf(stream, "\\r");
+            break;
+        default:
+            putc(buf[i], stream);
+            break;
+        }
     }
-#endif // #if HEXDUMP_DATA == 1
+
+    /* putc('\n', stream); */
+    /* for (size_t i = 0; i < delim_width; i++) { */
+    /*     putc(delim, stream); */
+    /* } */
+    /* putc('\n', stream); */
+}
+
+void
+dump_data(FILE *stream, char *buf, size_t buf_size, size_t line_width)
+{
+#if HEXDUMP_DATA == 1
+    hex_dump_line(stream, buf, buf_size, line_width);
+#else
+    ascii_dump_buf(stream, buf, buf_size, line_width);
+#endif
 }

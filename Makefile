@@ -1,6 +1,6 @@
 # Makefile
 CC:= cc
-CFLAGS := -pipe -O -Wall -Wextra -g
+CFLAGS := $(CFLAGS) -pipe -O -Wall -Wextra -g
 FAST_CFLAGS:= -pipe -O2 -Wall -Wpedantic -Wall -Wextra -g
 LINK := $(CC)
 
