@@ -308,7 +308,7 @@ main(int argc, char **argv)
         fprintf(stdout, "Finished fread()ing\n");
 
         // Send the HTTP end
-        int succ = send_str(newsock, "\r\n\r\n");
+        succ = send_str(newsock, "\r\n\r\n");
         if (!succ) {
             goto close;
         }
