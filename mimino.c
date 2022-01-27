@@ -76,7 +76,7 @@ main(int argc, char **argv)
     struct addrinfo **ipv6_addrinfos = NULL;
     int ipv6_addrinfos_i = 0;
 
-    // Init hints
+    // Init hints for getaddrinfo
     struct addrinfo hints;
     memset(&hints, 0, sizeof hints);
     hints.ai_flags = AI_PASSIVE;
@@ -396,10 +396,10 @@ sockbind(struct addrinfo *ai)
 }
 
 int
-send_buf(int sock, char *buf, size_t nbytes)
+send_buf(int sock, char *buf, size_t len)
 {
-    for (size_t nbytes_sent = 0; nbytes_sent < nbytes;) {
-        int sent = send(sock, buf, nbytes, 0);
+    for (size_t nbytes_sent = 0; nbytes_sent < len;) {
+        int sent = send(sock, buf, len, 0);
         int saved_errno = errno;
         if (sent == -1) {
             perror("send()");
@@ -422,11 +422,10 @@ send_buf(int sock, char *buf, size_t nbytes)
     return 1;
 }
 
-int
+inline int
 send_str(int sock, char *buf)
 {
-    size_t len = strlen(buf);
-    return send_buf(sock, buf, len);
+    return send_buf(sock, buf, strlen(buf));
 }
 
 // Searches for pat in buf1 concatenated with buf2.
