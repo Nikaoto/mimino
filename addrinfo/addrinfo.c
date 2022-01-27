@@ -15,7 +15,7 @@ int main(int argc, char **argv)
 {
     // Set remote address
     char *url = "www.example.com";
-    if (argc >= 1) {
+    if (argc >= 2) {
         if (strncmp(argv[1], "_", 1) == 0)
             url = NULL;
         else
@@ -24,15 +24,16 @@ int main(int argc, char **argv)
     
     // Set port
     char *port = "80";
-    if (argc >= 2) {
+    if (argc >= 3) {
         port = argv[2];
     }
 
     struct addrinfo hints = {
-        .ai_flags = AI_PASSIVE | AI_CANONNAME,
+        .ai_flags = AI_PASSIVE | (url ? AI_CANONNAME : 0x0),
         .ai_family = AF_UNSPEC,
         .ai_socktype = SOCK_STREAM,
         .ai_protocol = 0,
+        0
     };
     struct addrinfo *getaddrinfo_res;
 
