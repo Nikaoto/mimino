@@ -1,6 +1,6 @@
 /*
   http server
-  Usage: ./mimino [port] [dir/file]
+  Usage: ./mimino [dir/file] [port]
   Serves specified directory 'dir' on 'port'.
   Symlinks to files outside 'dir' are allowed.
   Symlinks to directories outside 'dir' are forbidden.
@@ -22,6 +22,7 @@
   getaddrinfo(NULL, port, &hints, &res);
   // iterate and choose preferred res
   sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+  setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
   bind(sockfd, res->ai_addr, res->ai_addrlen);
   listen(sockfd, backlog);
   while (newsock = accept(sockfd, &their_addr, their_addr_size))) {
@@ -49,49 +50,40 @@ void dump_data(FILE *stream, char *buf, size_t bufsize, size_t nbytes_recvd);
 int find_string_2bufs(char *buf1, char *buf2, char *pat);
 
 int
-main(int argc, char **argv)
+init_server(char *port, struct addrinfo *server_addrinfo)
 {
-    // Set port
-    char *port = "8080";
-    if (argc >= 2) {
-        port = argv[1];
-    }
-
-    // Set file to send
-    char *file_name = "README.md";
-    /* size_t file_name_len = 1; */
-    /* if (argc >= 3) { */
-    /*     file_name = argv[2]; */
-    /* } */
-    /* file_name_len = strlen(file_name); */
-
-    int backlog = 10;
-    int sockfd, saved_errno;
+    int sockfd;
     char ip_str[INET6_ADDRSTRLEN];
-    char their_ip_str[INET6_ADDRSTRLEN];
+
     struct addrinfo *getaddrinfo_res;
-    struct addrinfo *chosen_addrinfo = NULL;
     struct addrinfo **ipv4_addrinfos = NULL;
     int ipv4_addrinfos_i = 0;
     struct addrinfo **ipv6_addrinfos = NULL;
     int ipv6_addrinfos_i = 0;
 
     // Init hints for getaddrinfo
-    struct addrinfo hints;
-    memset(&hints, 0, sizeof hints);
-    hints.ai_flags = AI_PASSIVE;
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
+    struct addrinfo hints = {
+        .ai_flags = AI_PASSIVE,
+        .ai_family = AF_UNSPEC,
+        .ai_socktype = SOCK_STREAM,
+    };
 
     // Get server info
     int err = getaddrinfo(NULL, port, &hints, &getaddrinfo_res);
-    if (err != 0) {
+    if (err) {
         fprintf(stderr, "getaddrinfo failed: %s\n", gai_strerror(err));
         return 1;
     }
 
     // Populate ipv4_addrinfos and ipv6_addrinfos arrays
     for (struct addrinfo *rp = getaddrinfo_res; rp != NULL; rp = rp->ai_next) {
+        // Log each getaddrinfo response
+        if (inet_ntop(rp->ai_family,
+                      get_in_addr(rp->ai_addr),
+                      ip_str, sizeof(ip_str))) {
+            printf("getaddrinfo response: %s:%s\n", ip_str, port);
+        }
+
         switch (rp->ai_family) {
         case AF_INET:
             ipv4_addrinfos = realloc(ipv4_addrinfos,
@@ -111,23 +103,25 @@ main(int argc, char **argv)
         }
     }
 
+    int bound = 0;
+
     // Try binding to ipv4 (prefer ipv4 over ipv6)
     for (int i = 0; i < ipv4_addrinfos_i; i++) {
         sockfd = sockbind(ipv4_addrinfos[i]);
         if (sockfd != -1) {
-            chosen_addrinfo = malloc(sizeof(*chosen_addrinfo));
-            memcpy(chosen_addrinfo, ipv4_addrinfos[i], sizeof(*chosen_addrinfo));
+            memcpy(server_addrinfo, ipv4_addrinfos[i], sizeof(*server_addrinfo));
+            bound = 1;
             break;
         }
     }
 
     // Try binding to ipv6
-    if (chosen_addrinfo == NULL) {
+    if (!bound) {
         for (int i = 0; i < ipv6_addrinfos_i; i++) {
             sockfd = sockbind(ipv6_addrinfos[i]);
             if (sockfd != -1) {
-                chosen_addrinfo = malloc(sizeof(*chosen_addrinfo));
-                memcpy(chosen_addrinfo, ipv6_addrinfos[i], sizeof(*chosen_addrinfo));
+                memcpy(server_addrinfo, ipv6_addrinfos[i], sizeof(*server_addrinfo));
+                bound = 1;
                 break;
             }
         }
@@ -137,20 +131,40 @@ main(int argc, char **argv)
     free(ipv6_addrinfos);
     freeaddrinfo(getaddrinfo_res);
 
-    // Exit if failed to bind
-    if (chosen_addrinfo == NULL) {
-        fprintf(stderr, "Could not bind to any address.");
+    return bound ? sockfd : -1;
+}
+
+int
+main(int argc, char **argv)
+{
+    // Set file to send
+    char *file_name = "README.md";
+    if (argc >= 2) {
+        file_name = argv[1];
+    }
+
+    // Set port
+    char *port = "8080";
+    if (argc >= 3) {
+        port = argv[2];
+    }
+
+    // Init server
+    char ip_str[INET6_ADDRSTRLEN];
+    struct addrinfo server_addrinfo = {0};
+    int sock = init_server(port, &server_addrinfo);
+    if (sock == -1) {
+        fprintf(stderr, "init_server() failed.\n");
         return 1;
     }
 
-    // Get ip_str. Exit if chosen ip is munged
-    if (inet_ntop(chosen_addrinfo->ai_family,
-                  get_in_addr(chosen_addrinfo->ai_addr),
+    // Print server IP. Exit if it's is munged
+    if (inet_ntop(server_addrinfo.ai_family,
+                  get_in_addr(server_addrinfo.ai_addr),
                   ip_str, sizeof(ip_str)) == NULL) {
         perror("inet_ntop()");
         return 1;
     }
-
     printf("Bound to %s:%s\n", ip_str, port);
 
     // Don't block on sockfd
@@ -159,9 +173,9 @@ main(int argc, char **argv)
     /*     return 1; */
     /* } */
 
-    // Listen
-    err = listen(sockfd, backlog);
-    if (err != 0) {
+    // Start listening
+    int backlog = 10;
+    if (listen(sock, backlog) == -1) {
         perror("listen()");
         return 1;
     }
@@ -185,12 +199,13 @@ main(int argc, char **argv)
          -? if not sent completely, add it to send_queue with remaining data in a buffer
        - poll() fds in send_queue for POLLOUT
     */
+    char their_ip_str[INET6_ADDRSTRLEN];
     struct sockaddr_storage their_addr;
     socklen_t their_addr_size = sizeof(their_addr);
-    int newsock;
+    int newsock, saved_errno;
     while (1) {
         // Accept new connection
-        newsock = accept(sockfd, (struct sockaddr *)&their_addr, &their_addr_size);
+        newsock = accept(sock, (struct sockaddr *)&their_addr, &their_addr_size);
         saved_errno = errno;
         if (newsock == -1) {
             if (saved_errno != EAGAIN) {
@@ -317,9 +332,8 @@ main(int argc, char **argv)
         // Close newsock
       close:
         for (int closed = 0; closed == 0;) {
-            err = close(newsock);
-            saved_errno = errno;
-            if (err != 0) {
+            if (close(newsock) != 0) {
+                saved_errno = errno;
                 perror("close()");
                 switch (saved_errno) {
                 case EBADF:
@@ -342,7 +356,7 @@ main(int argc, char **argv)
 }
 
 // Get internet address (sin_addr or sin6_addr) from sockaddr
-void*
+inline void*
 get_in_addr(struct sockaddr *sa)
 {
     if (sa->sa_family == AF_INET) {
@@ -352,7 +366,7 @@ get_in_addr(struct sockaddr *sa)
     }
 }
 
-unsigned short
+inline unsigned short
 get_in_port(struct sockaddr *sa)
 {
     if (sa->sa_family == AF_INET) {
