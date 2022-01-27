@@ -1,7 +1,7 @@
 # Makefile
-CC:= cc
-CFLAGS := $(CFLAGS) -pipe -O -Wall -Wextra -g
-FAST_CFLAGS:= -pipe -O2 -Wall -Wpedantic -Wall -Wextra -g
+CC := cc
+CFLAGS := -pipe -O -Wall -Wextra -g $(DEFS)
+FAST_CFLAGS := -pipe -O2 -Wall -Wpedantic -Wall -Wextra -g $(DEFS)
 LINK := $(CC)
 
 all: mimino
