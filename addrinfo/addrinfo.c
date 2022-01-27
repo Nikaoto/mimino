@@ -78,7 +78,7 @@ int main(int argc, char **argv)
             continue;
         }
 
-        printf("'%s' ip: %s, port: %u, canonname:'%s'\n", url, ip_str, port_int, rp->ai_canonname);
+        printf("'%s', ip: %s, port: %u, canonname:'%s'\n", url, ip_str, port_int, rp->ai_canonname);
     }
 
     freeaddrinfo(getaddrinfo_res);
