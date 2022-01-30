@@ -36,9 +36,63 @@
 #define HEXDUMP_DATA 0
 #endif
 
-#ifndef BUFSIZE
-#define BUFSIZE 10
+#ifndef DUMP_WIDTH
+#define DUMP_WIDTH 10
 #endif
+
+#define REQ_SIZE 1024
+#define RES_SIZE 1024
+
+#define CONN_STATUS_READING   1
+#define CONN_STATUS_WRITING   2
+#define CONN_STATUS_WAITING   3
+#define CONN_STATUS_CLOSING   4
+#define CONN_STATUS_CLOSED    5
+
+typedef struct {
+    int fd;
+    struct pollfd *pollfd;
+    // NOTE: both req and res will be changed to dynamic char buffers
+    char req[REQ_SIZE];
+    size_t req_i;
+    char res[RES_SIZE];
+    size_t res_i; // Points to char up to which data was sent
+    int status;
+    int read_tries_left; // read_response tries left until force closing
+    int write_tries_left; // write_request tries left until force closing
+} Connection;
+
+/* NOTE: this is a stub while conn is static and has static buffers */
+void
+free_connection(Connection *conn)
+{
+    return;
+    free(conn->req);
+    free(conn->res);
+    free(conn);
+}
+
+Connection
+create_connection(int fd, struct pollfd *pfd)
+{
+    return (Connection) {
+        .fd = fd,
+        .pollfd = pfd,
+        .status = CONN_STATUS_READING,
+        .req_i = 0,
+        .res_i = 0,
+        .read_tries_left = 5,
+        .write_tries_left = 5,
+    };
+}
+
+typedef struct {
+    struct pollfd pollfds[20];
+    nfds_t pollfd_count;
+    Connection conns[21]; // First conn is ignored
+} Poll_Queue;
+
+static Poll_Queue poll_queue;
 
 int sockbind(struct addrinfo *ai);
 int send_buf(int sock, char *buf, size_t nbytes);
@@ -135,6 +189,111 @@ init_server(char *port, struct addrinfo *server_addrinfo)
 }
 
 int
+accept_new_conn(int listen_sock)
+{
+    int newsock;
+    int saved_errno;
+    char their_ip_str[INET6_ADDRSTRLEN];
+    struct sockaddr_storage their_addr;
+    socklen_t their_addr_size = sizeof(their_addr);
+
+    // Accept new connection
+    // TODO: set O_NONBLOCK and check for EWOULDBLOCK. Right now this will block
+    newsock = accept(listen_sock, (struct sockaddr *)&their_addr, &their_addr_size);
+    saved_errno = errno;
+    if (newsock == -1) {
+        if (saved_errno != EAGAIN) {
+            fprintf(stderr, "%d", saved_errno);
+            perror("accept()");
+        }
+    }
+
+    // Don't block on newsock
+    if (fcntl(newsock, F_SETFL, O_NONBLOCK) != 0) {
+        perror("fcntl()");
+    }
+
+    // Print their_addr
+    inet_ntop(their_addr.ss_family,
+              get_in_addr((struct sockaddr *)&their_addr),
+              their_ip_str, sizeof(their_ip_str));
+    printf("Got connection from %s:%d\n", their_ip_str,
+           ntohs(get_in_port((struct sockaddr *)&their_addr)));
+
+    return newsock;
+}
+
+// Returns 0 on error or close
+// Returns 1 if a read happened
+int
+read_request(Connection *conn)
+{
+    int n = recv(conn->fd, conn->req + conn->req_i, sizeof(conn->req) - conn->req_i, 0);
+
+    if (n < 0) {
+        if (errno == EWOULDBLOCK || errno == EAGAIN || errno == EINTR) {
+            if (conn->read_tries_left == 0) {
+                fprintf(stderr, "Reached max read tries for conn\n");
+                conn->status = CONN_STATUS_CLOSING;
+                conn->pollfd->events = 0;
+                return 0;
+            }
+            conn->read_tries_left--;
+        } else { // Some other ESOMETHING error
+            perror("recv()");
+            conn->status = CONN_STATUS_CLOSING;
+            conn->pollfd->events = 0;
+        }
+        return 0;
+    }
+
+    dump_data(stdout, conn->req + conn->req_i, n, DUMP_WIDTH);
+
+    if (n == 0 || strstr(conn->req, "\r\n\r\n")) {
+        // Finished reading
+        conn->status = CONN_STATUS_WRITING;
+        conn->pollfd->events = POLLOUT;
+        return 1;
+    }
+}
+
+int
+write_response(Connection *conn)
+{
+    int succ = send_str(conn->fd,
+        "HTTP/1.1 200\r\n\r\nGagimarjos\r\n");
+    conn->status = CONN_STATUS_CLOSING;
+    conn->pollfd->events = 0;
+
+    return succ;
+}
+
+/*
+  TODO: think of a better way to close a connection by passing an actual
+  Connection struct.
+*/
+void
+close_connection(Poll_Queue *pq, nfds_t i)
+{
+    /*
+      No need to check for errno here as most sane OSes close the file
+      descriptor early in their close syscall. So, retrying with the same fd
+      might close some other file. For more info read close(2) manual.
+    */
+    if (close(pq->pollfds[i].fd) == -1) {
+        perror("close()");
+    }
+
+    pq->conns[i].status = CONN_STATUS_CLOSED;
+
+    // Copy last pollfd onto current pollfd
+    if (i != pq->pollfd_count - 1)
+        pq->pollfds[i] = pq->pollfds[pq->pollfd_count - 1];
+
+    pq->pollfd_count--;
+}
+
+int
 main(int argc, char **argv)
 {
     // Set file to send
@@ -152,8 +311,8 @@ main(int argc, char **argv)
     // Init server
     char ip_str[INET6_ADDRSTRLEN];
     struct addrinfo server_addrinfo = {0};
-    int sock = init_server(port, &server_addrinfo);
-    if (sock == -1) {
+    int listen_sock = init_server(port, &server_addrinfo);
+    if (listen_sock == -1) {
         fprintf(stderr, "init_server() failed.\n");
         return 1;
     }
@@ -175,114 +334,91 @@ main(int argc, char **argv)
 
     // Start listening
     int backlog = 10;
-    if (listen(sock, backlog) == -1) {
+    if (listen(listen_sock, backlog) == -1) {
         perror("listen()");
         return 1;
     }
 
-    /*
-       Main loop:
-       - accept() connection
-       - recv() data and print it
-       - send() data
-       - close() connection
+    // Init poll_queue
+    poll_queue.pollfds[0] = (struct pollfd) {
+        .fd = listen_sock,
+        .events = POLLIN,
+        .revents = 0,
+    };
+    poll_queue.pollfd_count = 1;
 
-       TODO: Main loop with poll()
-       - poll() fds in poll_queue for POLLIN
-       - accept() connection and add its sockfd to the poll_queue
-         Make sure that it doesn't block AND it doesn't loop forever and use up
-         CPU if there are no incoming connections
-       - for each fd with POLLIN in poll_queue
-         - read & print data completely
-         -? send() data to fd
-         -? if sent completely, poll_queue
-         -? if not sent completely, add it to send_queue with remaining data in a buffer
-       - poll() fds in send_queue for POLLOUT
-    */
-    char their_ip_str[INET6_ADDRSTRLEN];
-    struct sockaddr_storage their_addr;
-    socklen_t their_addr_size = sizeof(their_addr);
-    int newsock, saved_errno;
+    // Main loop
     while (1) {
+        int nfds = poll(poll_queue.pollfds, poll_queue.pollfd_count, -1);
+        if (nfds == -1) {
+            perror("poll() returned -1");
+            return 1;
+        }
+
+        if (nfds == 0) {
+            fprintf(stderr, "poll() returned 0\n");
+            continue;
+        }
+
         // Accept new connection
-        newsock = accept(sock, (struct sockaddr *)&their_addr, &their_addr_size);
-        saved_errno = errno;
-        if (newsock == -1) {
-            if (saved_errno != EAGAIN) {
-                fprintf(stderr, "%d", saved_errno);
-                perror("accept()");
+        // NOTE: pollfds[0].fd is the listen_sock
+        if (poll_queue.pollfds[0].revents & POLLIN) {
+            int newsock = accept_new_conn(listen_sock);
+            if (newsock != -1) {
+                // Update poll_queue
+                // TODO: check bounds for the arrays
+                poll_queue.pollfd_count++;
+                int i = poll_queue.pollfd_count - 1;
+                poll_queue.pollfds[i] = (struct pollfd) {
+                    .fd = newsock,
+                    .events = POLLIN,
+                    .revents = 0,
+                };
+                poll_queue.conns[i] =
+                    create_connection(newsock, &poll_queue.pollfds[i]);
+
+                // Restart loop to prioritize new connections
+                continue;
             }
-            continue;
         }
 
-        // Don't block on newsock
-        if (fcntl(newsock, F_SETFL, O_NONBLOCK) != 0) {
-            perror("fcntl()");
-            continue;
-        }
+        nfds_t open_conn_count = poll_queue.pollfd_count;
 
-        // Print their_addr
-        inet_ntop(their_addr.ss_family,
-                  get_in_addr((struct sockaddr *)&their_addr),
-                  their_ip_str, sizeof(their_ip_str));
-        printf("Got connection from %s:%d\n", their_ip_str,
-               ntohs(get_in_port((struct sockaddr *)&their_addr)));
-
-        // Receive
-        // TODO: use poll() for recv()
-        // TODO: merge the send() loop with this recv() loop?
-        fprintf(stdout, "recv()ing data:\n");
-        int drop_connection = 0, maxtries = 5, request_finished = 0;
-        char last_buf[BUFSIZE];
-        char buf[BUFSIZE];
-        for (int tries = 0; !drop_connection && !request_finished;) {
-            int bytes_recvd = recv(newsock, buf, BUFSIZE, 0);
-            if (bytes_recvd == -1) {
-                saved_errno = errno;
-
-                switch (saved_errno) {
-                case EAGAIN:
-                    break;
-                case EINTR:
-                    if (tries++ >= maxtries) {
-                        fprintf(stderr, "recv() maxtries\n");
-                        drop_connection = 1;
-                    }
-                    printf("EINTR\n");
-                    break;
-                case ECONNREFUSED:
-                default:
-                    drop_connection = 1;
-                    perror("recv()");
-                    break;
+        // Iterate poll_queue (starts from 1, skipping listen_sock)
+        for (nfds_t fd_i = 1; fd_i < open_conn_count; fd_i++) {
+            struct pollfd *pfd = &poll_queue.pollfds[fd_i];
+            Connection *conn = &poll_queue.conns[fd_i];
+            switch (poll_queue.conns[fd_i].status) {
+            case CONN_STATUS_READING:
+                if (pfd->revents & POLLIN) {
+                    fprintf(stdout, "recv()ing data:\n");
+                    read_request(conn);
+                    fprintf(stdout, "Finished recv()\n");
+                    // TODO: parse_http_request(conn->req)
+                    // and based on Content-Length maybe keep reading.
+                    // TODO: also, close if invalid request
                 }
-            } else if (bytes_recvd == 0) {
-                printf("recv() returned 0\n");
                 break;
-            } else {
-                dump_data(stdout, buf, bytes_recvd, BUFSIZE);
-                // Check for HTTP end
-                if (find_string_2bufs(last_buf, buf, "\r\n\r\n")) {
-                    request_finished = 1;
-                    break;
+            case CONN_STATUS_WRITING:
+                if (pfd->revents & POLLOUT) {
+                    fprintf(stdout, "send()ing data\n");
+                    fprintf(stdout, "%d\n", write_response(conn));
+                    fprintf(stdout, "Finished send()ing\n");
+                    // TODO: think of a better way to close the conn here
+                    close_connection(&poll_queue, fd_i);
                 }
-                memcpy(last_buf, buf, BUFSIZE);
+                break;
+            case CONN_STATUS_WAITING:
+                fprintf(stdout, "CONN_STATUS_WAITING not implemented\n");
+            case CONN_STATUS_CLOSING:
+                close_connection(&poll_queue, fd_i);
+                break;
+            case CONN_STATUS_CLOSED:
+                break;
             }
         }
 
-        fprintf(stdout, "Finished recv()\n");
-
-        if (drop_connection) {
-            fprintf(stderr, "Client refused or error occured, dropping connection\n");
-            goto close;
-            continue;
-        }
-
-        // Send
-        // TODO: use poll()
-        fprintf(stdout, "send()ing data\n");
-        //int file_fd = open(file_name); // TODO: put this in the poll loop as well
-        char file_buf[16];
+        /*char file_buf[16];
         size_t file_buf_len = sizeof(file_buf) * sizeof(char);
 
         // Open file
@@ -294,11 +430,6 @@ main(int argc, char **argv)
 
         // Start reading the file and sending it.
         // This works without loading the entire file into memory.
-        int succ = send_str(newsock, "HTTP/1.0 200");
-        if (!succ) {
-            goto close;
-        }
-
         while (1) {
             size_t bytes_read = fread(file_buf, 1, file_buf_len, file_handle);
             if (bytes_read == 0) {
@@ -320,36 +451,7 @@ main(int argc, char **argv)
         };
 
         fclose(file_handle);
-        fprintf(stdout, "Finished fread()ing\n");
-
-        // Send the HTTP end
-        succ = send_str(newsock, "\r\n\r\n");
-        if (!succ) {
-            goto close;
-        }
-        fprintf(stdout, "Finished send()ing\n");
-
-        // Close newsock
-      close:
-        for (int closed = 0; closed == 0;) {
-            if (close(newsock) != 0) {
-                saved_errno = errno;
-                perror("close()");
-                switch (saved_errno) {
-                case EBADF:
-                case EIO:
-                    closed = 1;
-                    break;
-                case EINTR:
-                default:
-                    continue;
-                }
-            } else {
-                closed = 1;
-            }
-        }
-
-        fprintf(stdout, "close()d the socket\n");
+        fprintf(stdout, "Finished fread()ing\n"); */
     }
 
     return 0;
@@ -409,6 +511,7 @@ sockbind(struct addrinfo *ai)
     return s;
 }
 
+// TODO: incorporate this into the poll() loop
 int
 send_buf(int sock, char *buf, size_t len)
 {
@@ -528,6 +631,8 @@ ascii_dump_buf(FILE *stream, char *buf, size_t buf_size, size_t delim_width)
 void
 dump_data(FILE *stream, char *buf, size_t buf_size, size_t line_width)
 {
+    if (buf_size == 0)
+        return;
 #if HEXDUMP_DATA == 1
     hex_dump_line(stream, buf, buf_size, line_width);
 #else
