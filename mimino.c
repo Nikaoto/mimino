@@ -17,6 +17,7 @@
 #include <string.h>
 #include <errno.h>
 #include <poll.h>
+#include <dirent.h>
 
 /*
   getaddrinfo(NULL, port, &hints, &res);
@@ -58,8 +59,8 @@ typedef struct {
     char res[RES_SIZE];
     size_t res_i; // Points to char up to which data was sent
     int status;
-    int read_tries_left; // read_response tries left until force closing
-    int write_tries_left; // write_request tries left until force closing
+    int read_tries_left; // read_request tries left until force closing
+    int write_tries_left; // write_response tries left until force closing
 } Connection;
 
 /* NOTE: this is a stub while conn is static and has static buffers */
@@ -294,8 +295,46 @@ close_connection(Poll_Queue *pq, nfds_t i)
 }
 
 int
+dirsort (const void *x, const void *y)
+{
+    struct dirent *a = *(struct dirent**)x;
+    struct dirent *b = *(struct dirent**)y;
+
+    if (!strcmp(a->d_name, "."))
+        return -1;
+    if (!strcmp(b->d_name, "."))
+        return 1;
+    if (!strcmp(a->d_name, ".."))
+        return -1;
+    if (!strcmp(b->d_name, ".."))
+        return 1;
+
+    // TODO: do fstat on a and b
+
+    return strcmp(a->d_name, b->d_name);
+}
+
+int
 main(int argc, char **argv)
 {
+    /* List dir and sort */
+    /* struct dirent **namelist; */
+    /* int n = scandir(".", &namelist, NULL, NULL); */
+    /* if (n == -1) { */
+    /*     perror("scandir()"); */
+    /*     return 1; */
+    /* } */
+
+    /* qsort((void*) namelist, (size_t) n, sizeof(struct dirent*), dirsort); */
+
+    /* for (int i = 0; i < n; i++) { */
+    /*     printf("%s\n", namelist[i]->d_name); */
+    /*     free(namelist[i]); */
+    /* } */
+    /* free(namelist); */
+
+    /* return 0; */
+
     // Set file to send
     char *file_name = "README.md";
     if (argc >= 2) {
