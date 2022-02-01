@@ -18,6 +18,7 @@
 #include <errno.h>
 #include <poll.h>
 #include <dirent.h>
+#include "http.h"
 
 /*
   getaddrinfo(NULL, port, &hints, &res);
@@ -33,8 +34,10 @@
   }
 */
 
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+
 #ifndef HEXDUMP_DATA
-#define HEXDUMP_DATA 0
+#define HEXDUMP_DATA 1
 #endif
 
 #ifndef DUMP_WIDTH
@@ -55,12 +58,12 @@ typedef struct {
     struct pollfd *pollfd;
     // NOTE: both req and res will be changed to dynamic char buffers
     char req[REQ_SIZE];
-    size_t req_i;
+    size_t req_i;               // Points to char up to which data was read
     char res[RES_SIZE];
-    size_t res_i; // Points to char up to which data was sent
+    size_t res_i;               // Points to char up to which data was sent
     int status;
-    int read_tries_left; // read_request tries left until force closing
-    int write_tries_left; // write_response tries left until force closing
+    int read_tries_left;        // read_request tries left until force closing
+    int write_tries_left;       // write_response tries left until force closing
 } Connection;
 
 /* NOTE: this is a stub while conn is static and has static buffers */
@@ -73,7 +76,7 @@ free_connection(Connection *conn)
     free(conn);
 }
 
-Connection
+inline Connection
 create_connection(int fd, struct pollfd *pfd)
 {
     return (Connection) {
@@ -224,8 +227,8 @@ accept_new_conn(int listen_sock)
     return newsock;
 }
 
-// Returns 0 on error or close
-// Returns 1 if a read happened
+// Returns 0 on error or max retry reached
+// Returns 1 if a read happened or finished
 int
 read_request(Connection *conn)
 {
@@ -256,6 +259,9 @@ read_request(Connection *conn)
         conn->pollfd->events = POLLOUT;
         return 1;
     }
+
+    conn->req_i += n;
+    return 1;
 }
 
 int
@@ -335,10 +341,10 @@ main(int argc, char **argv)
 
     /* return 0; */
 
-    // Set file to send
-    char *file_name = "README.md";
+    // Set dir/file path to serve
+    char *path = ".";
     if (argc >= 2) {
-        file_name = argv[1];
+        path = argv[1];
     }
 
     // Set port
@@ -356,7 +362,7 @@ main(int argc, char **argv)
         return 1;
     }
 
-    // Print server IP. Exit if it's is munged
+    // Print server IP. Exit if it's munged
     if (inet_ntop(server_addrinfo.ai_family,
                   get_in_addr(server_addrinfo.ai_addr),
                   ip_str, sizeof(ip_str)) == NULL) {
@@ -364,12 +370,6 @@ main(int argc, char **argv)
         return 1;
     }
     printf("Bound to %s:%s\n", ip_str, port);
-
-    // Don't block on sockfd
-    /* if (fcntl(sockfd, F_SETFL, O_NONBLOCK) != 0) { */
-    /*     perror("fcntl()"); */
-    /*     return 1; */
-    /* } */
 
     // Start listening
     int backlog = 10;
@@ -405,9 +405,9 @@ main(int argc, char **argv)
             int newsock = accept_new_conn(listen_sock);
             if (newsock != -1) {
                 // Update poll_queue
-                // TODO: check bounds for the arrays
                 poll_queue.pollfd_count++;
                 int i = poll_queue.pollfd_count - 1;
+                // TODO: check bounds for the arrays
                 poll_queue.pollfds[i] = (struct pollfd) {
                     .fd = newsock,
                     .events = POLLIN,
@@ -433,9 +433,23 @@ main(int argc, char **argv)
                     fprintf(stdout, "recv()ing data:\n");
                     read_request(conn);
                     fprintf(stdout, "Finished recv()\n");
-                    // TODO: parse_http_request(conn->req)
+                    /* Finished reading, just parse and dump the parse results.
+                       TODO: clean this, it feels misplaced, maybe check
+                       for CONN_STATUS_PARSING? */
+                    if (conn->status == CONN_STATUS_WRITING) {
+                        Http_Request *req = parse_http_request(conn->req);
+                        // Close on invalid request
+                        // TODO: ^(check RFC if this is appropriate behavior)
+                        if (req->error) {
+                            conn->status = CONN_STATUS_CLOSING;
+                            conn->pollfd->events = 0;
+                            close_connection(&poll_queue, fd_i);
+                        }
+                        print_http_request(stdout, req);
+                        free_http_request(req);
+                    }
                     // and based on Content-Length maybe keep reading.
-                    // TODO: also, close if invalid request
+
                 }
                 break;
             case CONN_STATUS_WRITING:
@@ -461,7 +475,7 @@ main(int argc, char **argv)
         size_t file_buf_len = sizeof(file_buf) * sizeof(char);
 
         // Open file
-        FILE *file_handle = fopen(file_name, "r");
+        FILE *file_handle = fopen(path, "r");
         if (file_handle == NULL) {
             perror("fopen()");
             goto close;
@@ -473,7 +487,7 @@ main(int argc, char **argv)
             size_t bytes_read = fread(file_buf, 1, file_buf_len, file_handle);
             if (bytes_read == 0) {
                 if (ferror(file_handle)) {
-                    fprintf(stdout, "Error when fread()ing file %s\n", file_name);
+                    fprintf(stdout, "Error when fread()ing file %s\n", path);
                 }
                 break;
             }
@@ -634,15 +648,8 @@ hex_dump_line(FILE *stream, char *buf, size_t buf_size, size_t width)
 }
 
 void
-ascii_dump_buf(FILE *stream, char *buf, size_t buf_size, size_t delim_width)
+ascii_dump_buf(FILE *stream, char *buf, size_t buf_size)
 {
-    /* char delim = '-'; */
-
-    /* for (size_t i = 0; i < delim_width; i++) { */
-    /*     putc(delim, stream); */
-    /* } */
-    /* putc('\n', stream); */
-
     for (size_t i = 0; i < buf_size; i++) {
         switch (buf[i]) {
         case '\n':
@@ -659,12 +666,6 @@ ascii_dump_buf(FILE *stream, char *buf, size_t buf_size, size_t delim_width)
             break;
         }
     }
-
-    /* putc('\n', stream); */
-    /* for (size_t i = 0; i < delim_width; i++) { */
-    /*     putc(delim, stream); */
-    /* } */
-    /* putc('\n', stream); */
 }
 
 void
@@ -673,7 +674,10 @@ dump_data(FILE *stream, char *buf, size_t buf_size, size_t line_width)
     if (buf_size == 0)
         return;
 #if HEXDUMP_DATA == 1
-    hex_dump_line(stream, buf, buf_size, line_width);
+    for (size_t i = 0; i < buf_size; i += line_width) {
+        hex_dump_line(stream, buf + i, MIN(buf_size - i, line_width),
+                      line_width);
+    }
 #else
     ascii_dump_buf(stream, buf, buf_size, line_width);
 #endif
