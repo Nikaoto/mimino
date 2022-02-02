@@ -20,20 +20,6 @@
 #include <dirent.h>
 #include "http.h"
 
-/*
-  getaddrinfo(NULL, port, &hints, &res);
-  // iterate and choose preferred res
-  sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-  setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-  bind(sockfd, res->ai_addr, res->ai_addrlen);
-  listen(sockfd, backlog);
-  while (newsock = accept(sockfd, &their_addr, their_addr_size))) {
-    recv(newsock, buf, buflen, 0);
-    send(newsock, msg, msglen, 0);
-    close(newsock);
-  }
-*/
-
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 #ifndef HEXDUMP_DATA
