@@ -30,8 +30,8 @@
 #define DUMP_WIDTH 10
 #endif
 
-#define REQ_SIZE 1024
-#define RES_SIZE 1024
+#define REQ_BUF_SIZE 1024
+#define RES_BUF_SIZE 8192
 
 #define CONN_STATUS_READING   1
 #define CONN_STATUS_WRITING   2
@@ -43,10 +43,11 @@ typedef struct {
     int fd;
     struct pollfd *pollfd;
     // NOTE: both req and res will be changed to dynamic char buffers
-    char req[REQ_SIZE];
-    size_t req_i;               // Points to char up to which data was read
-    char res[RES_SIZE];
-    size_t res_i;               // Points to char up to which data was sent
+    Http_Request *req;
+    char req_buf[REQ_BUF_SIZE];
+    size_t req_buf_i;           // Points to char up to which data was read
+    char res_buf[RES_BUF_SIZE];
+    size_t res_buf_i;           // Points to char up to which data was sent
     int status;
     int read_tries_left;        // read_request tries left until force closing
     int write_tries_left;       // write_response tries left until force closing
@@ -56,9 +57,10 @@ typedef struct {
 void
 free_connection(Connection *conn)
 {
-    return;
     free(conn->req);
-    free(conn->res);
+    return;
+    free(conn->req_buf);
+    free(conn->res_buf);
     free(conn);
 }
 
@@ -69,8 +71,8 @@ create_connection(int fd, struct pollfd *pfd)
         .fd = fd,
         .pollfd = pfd,
         .status = CONN_STATUS_READING,
-        .req_i = 0,
-        .res_i = 0,
+        .req_buf_i = 0,
+        .res_buf_i = 0,
         .read_tries_left = 5,
         .write_tries_left = 5,
     };
@@ -213,12 +215,13 @@ accept_new_conn(int listen_sock)
     return newsock;
 }
 
-// Returns 0 on error or max retry reached
-// Returns 1 if a read happened or finished
+// Returns 1 if read finished successfully
+// Returns 0 otherwise (even if an incomplete read happenned)
 int
 read_request(Connection *conn)
 {
-    int n = recv(conn->fd, conn->req + conn->req_i, sizeof(conn->req) - conn->req_i, 0);
+    int n = recv(conn->fd, conn->req_buf + conn->req_buf_i,
+                 sizeof(conn->req_buf) - conn->req_buf_i, 0);
 
     if (n < 0) {
         if (errno == EWOULDBLOCK || errno == EAGAIN || errno == EINTR) {
@@ -237,22 +240,28 @@ read_request(Connection *conn)
         return 0;
     }
 
-    dump_data(stdout, conn->req + conn->req_i, n, DUMP_WIDTH);
+    dump_data(stdout, conn->req_buf + conn->req_buf_i, n, DUMP_WIDTH);
 
-    if (n == 0 || strstr(conn->req, "\r\n\r\n")) {
+    // NOTE: The "\r\n\r\n" might be too limited
+    if (n == 0 || strstr(conn->req_buf, "\r\n\r\n")) {
         // Finished reading
         conn->status = CONN_STATUS_WRITING;
         conn->pollfd->events = POLLOUT;
         return 1;
     }
 
-    conn->req_i += n;
-    return 1;
+    conn->req_buf_i += n;
+    return 0;
 }
 
 int
 write_response(Connection *conn)
 {
+    // TODO: implement code below
+    // file_list = scandir("./" + conn->req->path);
+    // html = file_list_to_html(filelist);
+    // conn->res_buf = make_http_response(status, headers, html);
+    // send(conn->fd, conn->res_buf);
     int succ = send_str(conn->fd,
         "HTTP/1.1 200\r\n\r\nGagimarjos\r\n");
     conn->status = CONN_STATUS_CLOSING;
@@ -416,14 +425,9 @@ main(int argc, char **argv)
             switch (poll_queue.conns[fd_i].status) {
             case CONN_STATUS_READING:
                 if (pfd->revents & POLLIN) {
-                    fprintf(stdout, "recv()ing data:\n");
-                    read_request(conn);
-                    fprintf(stdout, "Finished recv()\n");
-                    /* Finished reading, just parse and dump the parse results.
-                       TODO: clean this, it feels misplaced, maybe check
-                       for CONN_STATUS_PARSING? */
-                    if (conn->status == CONN_STATUS_WRITING) {
-                        Http_Request *req = parse_http_request(conn->req);
+                    int finished_reading = read_request(conn);
+                    if (finished_reading) {
+                        Http_Request *req = parse_http_request(conn->req_buf);
                         // Close on invalid request
                         // TODO: ^(check RFC if this is appropriate behavior)
                         if (req->error) {
