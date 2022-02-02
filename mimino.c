@@ -328,10 +328,10 @@ main(int argc, char **argv)
     /* return 0; */
 
     // Set dir/file path to serve
-    char *path = ".";
-    if (argc >= 2) {
-        path = argv[1];
-    }
+    /* char *path = "."; */
+    /* if (argc >= 2) { */
+    /*     path = argv[1]; */
+    /* } */
 
     // Set port
     char *port = "8080";
@@ -435,7 +435,6 @@ main(int argc, char **argv)
                         free_http_request(req);
                     }
                     // and based on Content-Length maybe keep reading.
-
                 }
                 break;
             case CONN_STATUS_WRITING:

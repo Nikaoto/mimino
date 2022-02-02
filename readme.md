@@ -5,13 +5,13 @@ WIP http server for educational purposes.
 Needs to be "faster" than nginx before April 1st.
 
 ## Usage
-`mimino [filename]` serves a single file.
-`mimino [dirname]` serves a directory.
+- `mimino [filename]` serves a single file.
+- `mimino [dirname]` serves a directory.
 
 ## TODO
 - Skim RFCs
   - [HTTP/1.1 - Syntax & Routing (main)](https://datatracker.ietf.org/doc/html/rfc7230)
-  - [HTTP/1.1 - Status Codes & Methods](https://datatracker.ietf.org/doc/html/rfc7231)
+  - [HTTP/1.1 - Status Codes, Methods & Headers ](https://datatracker.ietf.org/doc/html/rfc7231)
   - [HTTP/1.1 - Authentication](https://datatracker.ietf.org/doc/html/rfc7235)
   - [HTTP/1.1 - ETags & Last-Modified](https://datatracker.ietf.org/doc/html/rfc7232)
   - [HTTP/1.1 - Caching](https://datatracker.ietf.org/doc/html/rfc7234)

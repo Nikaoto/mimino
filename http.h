@@ -7,8 +7,9 @@ typedef struct {
     char *version_number;
     //char *query;
     //char *fragment;
-    //char *user_agent;
-    //char *host;
+    char *host;
+    char *user_agent;
+    char *accept;
     char *error;
 } Http_Request;
 
