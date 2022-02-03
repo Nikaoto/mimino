@@ -115,18 +115,10 @@ parse_http_request(const char *buf)
     }
     buf += 2;
 
-/*
-  GET / HTTP/1.1\r\n
-  Host: google.com\r\n
-  User-Agent: curl/7.74.0\r\n
-  Accept: *_/*\r\n
-           ^ no underscore here
-  \r\n
-*/
-    // TODO: Parse headers
+    // Parse headers
     while (1) {
         const char *hn; // header name
-        size_t hn_len;
+        //size_t hn_len;
         const char *hv; // header value
         size_t hv_len;
 
@@ -139,7 +131,7 @@ parse_http_request(const char *buf)
         hn = buf;
         while (is_alpha(*buf) || *buf == '-')
             buf++;
-        hn_len = (size_t) (buf - hn);
+        //hn_len = (size_t) (buf - hn);
   
         if (*buf != ':') {
             req->error = "No ':' after header name";
@@ -174,11 +166,11 @@ parse_http_request(const char *buf)
         /* fputc('\n', stdout); */
 
         // Check if we handle header
-        if (!strncmp("Host", hn, 4)) {
+        if (!strncasecmp("Host", hn, 4)) {
             req->host = strndup(hv, hv_len);
-        } else if (!strncmp("User-Agent", hn, 10)) {
+        } else if (!strncasecmp("User-Agent", hn, 10)) {
             req->user_agent = strndup(hv, hv_len);
-        } else if (!strncmp("Accept", hn, 6)) {
+        } else if (!strncasecmp("Accept", hn, 6)) {
             req->accept = strndup(hv, hv_len);
         }
     }

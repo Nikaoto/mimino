@@ -19,6 +19,7 @@
 #include <poll.h>
 #include <dirent.h>
 #include "http.h"
+#include "dir.h"
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
@@ -52,6 +53,16 @@ typedef struct {
     int read_tries_left;        // read_request tries left until force closing
     int write_tries_left;       // write_response tries left until force closing
 } Connection;
+
+// TODO: fill with data in main
+typedef struct {
+    char *cwd;
+    char *serve_dir;
+    char *port;
+    int sock;
+    char ip[INET6_ADDRSTRLEN];
+    struct addrinfo addrinfo;
+} Server;
 
 /* NOTE: this is a stub while conn is static and has static buffers */
 void
@@ -255,15 +266,28 @@ read_request(Connection *conn)
 }
 
 int
-write_response(Connection *conn)
+write_response(Server *serv, Connection *conn)
 {
+
+    File_List *fl = ls(serv->serve_dir);
+    int succ = send_str(conn->fd,
+        "HTTP/1.1 200\r\n\r\n");
+
+    char res[RES_BUF_SIZE];
+    size_t ri = 0;
+    ri += sprintf(res + ri, "<!DOCTYPE html><html><body><ol>\n");
+    for (size_t i = 0; i < fl->len; i++) {
+        ri += sprintf(res + ri, "<li>%s</li>\n", fl->files[i].name);
+    }
+    ri += sprintf(res + ri, "</ol></body></html>\r\n");
+    succ = send_str(conn->fd, res);
+    free(fl);
+
     // TODO: implement code below
     // file_list = scandir("./" + conn->req->path);
     // html = file_list_to_html(filelist);
     // conn->res_buf = make_http_response(status, headers, html);
     // send(conn->fd, conn->res_buf);
-    int succ = send_str(conn->fd,
-        "HTTP/1.1 200\r\n\r\nGagimarjos\r\n");
     conn->status = CONN_STATUS_CLOSING;
     conn->pollfd->events = 0;
 
@@ -296,57 +320,23 @@ close_connection(Poll_Queue *pq, nfds_t i)
 }
 
 int
-dirsort (const void *x, const void *y)
-{
-    struct dirent *a = *(struct dirent**)x;
-    struct dirent *b = *(struct dirent**)y;
-
-    if (!strcmp(a->d_name, "."))
-        return -1;
-    if (!strcmp(b->d_name, "."))
-        return 1;
-    if (!strcmp(a->d_name, ".."))
-        return -1;
-    if (!strcmp(b->d_name, ".."))
-        return 1;
-
-    // TODO: do fstat on a and b
-
-    return strcmp(a->d_name, b->d_name);
-}
-
-int
 main(int argc, char **argv)
 {
-    /* List dir and sort */
-    /* struct dirent **namelist; */
-    /* int n = scandir(".", &namelist, NULL, NULL); */
-    /* if (n == -1) { */
-    /*     perror("scandir()"); */
-    /*     return 1; */
-    /* } */
-
-    /* qsort((void*) namelist, (size_t) n, sizeof(struct dirent*), dirsort); */
-
-    /* for (int i = 0; i < n; i++) { */
-    /*     printf("%s\n", namelist[i]->d_name); */
-    /*     free(namelist[i]); */
-    /* } */
-    /* free(namelist); */
-
-    /* return 0; */
-
     // Set dir/file path to serve
-    /* char *path = "."; */
-    /* if (argc >= 2) { */
-    /*     path = argv[1]; */
-    /* } */
+    char *path = "./";
+    if (argc >= 2) {
+        path = argv[1];
+    }
 
     // Set port
     char *port = "8080";
     if (argc >= 3) {
         port = argv[2];
     }
+
+    Server serv = {0};
+    serv.serve_dir = path;
+    serv.port = port;
 
     // Init server
     char ip_str[INET6_ADDRSTRLEN];
@@ -428,23 +418,24 @@ main(int argc, char **argv)
                     int finished_reading = read_request(conn);
                     if (finished_reading) {
                         Http_Request *req = parse_http_request(conn->req_buf);
+
                         // Close on invalid request
-                        // TODO: ^(check RFC if this is appropriate behavior)
                         if (req->error) {
                             conn->status = CONN_STATUS_CLOSING;
                             conn->pollfd->events = 0;
                             close_connection(&poll_queue, fd_i);
+                            free_http_request(req);
                         }
-                        print_http_request(stdout, req);
-                        free_http_request(req);
+
+                        conn->req = req;
+                        print_http_request(stdout, conn->req);
                     }
-                    // and based on Content-Length maybe keep reading.
                 }
                 break;
             case CONN_STATUS_WRITING:
                 if (pfd->revents & POLLOUT) {
                     fprintf(stdout, "send()ing data\n");
-                    fprintf(stdout, "%d\n", write_response(conn));
+                    fprintf(stdout, "%d\n", write_response(&serv, conn));
                     fprintf(stdout, "Finished send()ing\n");
                     // TODO: think of a better way to close the conn here
                     close_connection(&poll_queue, fd_i);
