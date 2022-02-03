@@ -10,7 +10,7 @@ all: mimino
 # fast: mimino.c
 # 	$(CC) $(FAST_CFLAGS) mimino.c -o $@
 
-mimino: mimino.o http.o
+mimino: mimino.o http.o dir.o
 	$(CC) $^ $(CFLAGS) -o $@
 
 %.o: %.c
