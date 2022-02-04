@@ -1,5 +1,5 @@
-#ifndef _HTTP_H
-#define _HTTP_H
+#ifndef _MIMINO_HTTP_H
+#define _MIMINO_HTTP_H
 
 #include <stdio.h>
 
@@ -19,4 +19,4 @@ Http_Request* parse_http_request(const char *);
 void print_http_request(FILE *, Http_Request *);
 void free_http_request(Http_Request *);
 
-#endif // _HTTP_H
+#endif // _MIMINO_HTTP_H

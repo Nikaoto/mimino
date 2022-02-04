@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <dirent.h>
 #include "dir.h"
+#include "ascii.h"
 
 void
 print_file_info(FILE *f, File *file)
@@ -16,32 +17,110 @@ print_file_info(FILE *f, File *file)
     fprintf(f, "}\n");
 }
 
-int
-dirsort (const void *x, const void *y)
+char*
+get_file_type_suffix(File *f)
 {
-    File *a = *(File**)x;
-    File *b = *(File**)y;
+    static char *dir = "/";
+    static char *link = " ->";
+    static char *reg = " ";
 
-    print_file_info(stdout, a);
-    print_file_info(stdout, b);
+    if (f->is_dir)
+        return dir;
+    if (f->is_link)
+        return link;
 
-    if (!strcmp(a->name, "."))
+    return reg;
+}
+
+void
+swap_in_file_list(File_List *fl, size_t a, size_t b)
+{
+    if (a == b) return;
+    File tmp_item = fl->files[a];
+    fl->files[a] = fl->files[b];
+    fl->files[b] = tmp_item;
+}
+
+// Return -1 if first arg greater
+// Return 1 if second arg greater
+// Return 0 otherwise
+int
+compare_file_names(char *a, char *b)
+{
+    // Sort alphabetically, but prioritize names starting with
+    // a non alpha-numeric character (tilde, dot, comma...).
+    // But prioritize those starting with a dot most.
+    if (a[0] == '.' && b[0] == '.')
+        return strcmp(a, b);
+    else if (a[0] == '.')
         return -1;
-    if (!strcmp(b->name, "."))
-        return 1;
-    if (!strcmp(a->name, ".."))
-        return -1;
-    if (!strcmp(b->name, ".."))
+    else if (b[0] == '.')
         return 1;
 
+    if (!is_alnum(a[0]) && !is_alnum(b[0]))
+        return strcmp(a, b);
+    else if (!is_alnum(a[0]))
+        return -1;
+    else if (!is_alnum(b[0]))
+        return 1;
+
+    return strcmp(a, b);
+}
+
+// Return -1 if first arg greater
+// Return 1 if second arg greater
+// Return 0 otherwise
+int
+compare_files(File *a, File *b)
+{
+    // First come directories, then other file types.
     if (S_ISDIR(a->mode) && S_ISDIR(b->mode))
-        return strcmp(a->name, b->name);
-    if (S_ISDIR(a->mode))
+        return compare_file_names(a->name, b->name);
+    else if (S_ISDIR(a->mode))
         return -1;
-    if (S_ISDIR(b->mode))
+    else if (S_ISDIR(b->mode))
         return 1;
 
-    return strcmp(a->name, b->name);
+     return compare_file_names(a->name, b->name);
+}
+
+void
+sort_file_list (File_List *fl)
+{
+    // Find '.' and '..'
+    int curr_dir_found = 0;
+    int prev_dir_found = 0;
+    size_t curr_dir, prev_dir;
+    for (size_t i = 0; i < fl->len; i++) {
+        if (!strcmp(".", fl->files[i].name)) {
+            curr_dir_found = 1;
+            curr_dir = i;
+        } else if (!strcmp("..", fl->files[i].name)) {
+            prev_dir_found = 1;
+            prev_dir = i;
+        }
+    }
+
+    // Put '.' first
+    if (curr_dir_found) {
+        swap_in_file_list(fl, 0, curr_dir);
+    }
+
+    // Put '..' after '.' or first if it wasn't found
+    if (prev_dir_found) {
+        swap_in_file_list(fl, curr_dir_found, prev_dir);
+    }
+
+    // Do insertion sort for the rest of the array
+    for (size_t i = curr_dir_found + prev_dir_found; i < fl->len; i++) {
+        size_t smallest = i;
+        // Linear search to find smallest
+        for (size_t j = smallest + 1; j < fl->len; j++) {
+            if (compare_files(fl->files + smallest, fl->files + j) == 1)
+                smallest = j;
+        }
+        swap_in_file_list(fl, smallest, i);
+    }
 }
 
 File_List*
@@ -78,10 +157,10 @@ ls(char *dir)
 
         // Get stats
         struct stat sb;
-        err = stat(full_path, &sb);
+        err = lstat(full_path, &sb);
         if (err) {
             //saved_errno = errno;
-            perror("stat()");
+            perror("lstat()");
             fprintf(stderr, "Failed on file \"%s\"\n", full_path);
             // TODO: handle the error in saved_errno
         }
@@ -91,6 +170,8 @@ ls(char *dir)
             .name = strndup(file_name, 256),
             .mode = sb.st_mode,
             .size = sb.st_size,
+            .is_dir = S_ISDIR(sb.st_mode),
+            .is_link = S_ISLNK(sb.st_mode),
         };
 
         //print_file_info(stdout, &(file_list->files[i]));
@@ -99,9 +180,7 @@ ls(char *dir)
     free(namelist);
     free(full_path);
 
-    // TODO: write own qsort, this one can't work with the struct
-    /* qsort(&file_list->files, (size_t) file_list->len, */
-    /*     sizeof(file_list->files), dirsort); */
+    sort_file_list(file_list);
 
     return file_list;
 }

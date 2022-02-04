@@ -1,5 +1,5 @@
-#ifndef _DIR_H
-#define _DIR_H
+#ifndef _MIMINO_DIR_H
+#define _MIMINO_DIR_H
 
 #include <sys/types.h>
 
@@ -7,6 +7,8 @@ typedef struct {
     char *name;
     mode_t mode;
     off_t size;
+    int is_dir;
+    int is_link;
 } File;
 
 typedef struct {
@@ -16,7 +18,9 @@ typedef struct {
 
 File_List* ls(char *dir);
 
-#endif // _DIR_H
+char* get_file_type_suffix(File *f);
+
+#endif // _MIMINO_DIR_H
 
 /*
   struct dirent {

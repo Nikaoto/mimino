@@ -270,16 +270,18 @@ write_response(Server *serv, Connection *conn)
 {
 
     File_List *fl = ls(serv->serve_dir);
-    int succ = send_str(conn->fd,
-        "HTTP/1.1 200\r\n\r\n");
+    int succ = send_str(conn->fd, "HTTP/1.1 200\r\n\r\n");
 
     char res[RES_BUF_SIZE];
     size_t ri = 0;
-    ri += sprintf(res + ri, "<!DOCTYPE html><html><body><ol>\n");
+    ri += sprintf(res + ri, "<!DOCTYPE html><html><body><ul>\n");
     for (size_t i = 0; i < fl->len; i++) {
-        ri += sprintf(res + ri, "<li>%s</li>\n", fl->files[i].name);
+        ri += sprintf(res + ri,
+                      "<li>%s%s</li>\n",
+                      fl->files[i].name,
+                      get_file_type_suffix(fl->files + i));
     }
-    ri += sprintf(res + ri, "</ol></body></html>\r\n");
+    ri += sprintf(res + ri, "</ul></body></html>\r\n");
     succ = send_str(conn->fd, res);
     free(fl);
 
