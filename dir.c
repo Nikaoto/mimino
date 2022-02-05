@@ -18,6 +18,28 @@ print_file_info(FILE *f, File *file)
 }
 
 char*
+get_human_file_size(off_t size)
+{
+    #define LEN 22
+    char *str = malloc(LEN);
+
+    if (size < KB_SIZE) {
+        snprintf(str, LEN, "%ld", size);
+    } else if (size >= KB_SIZE && size < MB_SIZE) {
+        snprintf(str, LEN, "%ldK", size / KB_SIZE);
+    } else if (size >= MB_SIZE && size < GB_SIZE) {
+        snprintf(str, LEN, "%ldM", size / MB_SIZE);
+    } else if (size >= GB_SIZE && size < TB_SIZE) {
+        snprintf(str, LEN, "%ldG", size / GB_SIZE);
+    } else if (size >= MB_SIZE && size < GB_SIZE) {
+        snprintf(str, LEN, "%ldT", size / TB_SIZE);
+    }
+
+    #undef LEN
+    return str;
+}
+
+char*
 get_file_type_suffix(File *f)
 {
     static char *dir = "/";

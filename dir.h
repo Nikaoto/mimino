@@ -3,6 +3,11 @@
 
 #include <sys/types.h>
 
+#define TB_SIZE 0xE8D4A51000
+#define GB_SIZE 0x3B9ACA00
+#define MB_SIZE 0xF4240
+#define KB_SIZE 0x3E8
+
 typedef struct {
     char *name;
     mode_t mode;
@@ -19,6 +24,7 @@ typedef struct {
 File_List* ls(char *dir);
 
 char* get_file_type_suffix(File *f);
+char* get_human_file_size(off_t size);
 
 #endif // _MIMINO_DIR_H
 

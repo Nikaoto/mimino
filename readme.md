@@ -19,10 +19,8 @@ WIP http server for educational purposes.
   - [old HTTP 1.1 RFC](https://datatracker.ietf.org/doc/html/rfc2616)
   - [other internet standard RFCs](https://www.rfc-editor.org/search/rfc_search_detail.php?sortkey=Number&sorting=DESC&page=All&pubstatus%5B%5D=Standards%20Track&std_trk=Internet%20Standard)
   - [Roy Fieldings REST dissertation](https://www.ics.uci.edu/~fielding/pubs/dissertation/top.htm)
+- Do SSL (pass certs to cli)
+- move (almost) all structs and header contents to mimino.h
 - Right now I'm send()ing stuff bit by bit. Need to find out how big an HTTP request can get
 - GoodSocket by jart: https://github.com/jart/cosmopolitan/blob/master/libc/sock/goodsocket.c
 - read https://developer.mozilla.org/en-US/docs/Web/HTTP
-- HTTP protocol
-- configuration support (in json?)
-  - fastCGI (or some other CGI thing)
-  - HTTPs (for SSL cert paths)

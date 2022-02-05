@@ -275,9 +275,9 @@ file_list_to_html(File_List *fl, Buffer *buf)
         // Write file size
         succ &= buf_append_str(buf, "</td><td>");
         if (!fl->files[i].is_dir) {
-            char tmp[32];
-            sprintf(tmp, "%ld", fl->files[i].size);
+            char *tmp = get_human_file_size(fl->files[i].size);
             succ &= buf_append_str(buf, tmp);
+            free(tmp);
         }
         succ &= buf_append_str(buf, "</td></tr>\n");
         if (!succ)
