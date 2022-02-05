@@ -8,6 +8,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -18,51 +19,49 @@
 #include <errno.h>
 #include <poll.h>
 #include <dirent.h>
-#include "http.h"
-#include "dir.h"
+#include "mimino.h"
 
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
+int sockbind(struct addrinfo *ai);
+int send_buf(int sock, char *buf, size_t nbytes);
+int send_str(int sock, char *buf);
+void *get_in_addr(struct sockaddr *sa);
+unsigned short get_in_port(struct sockaddr *sa);
+void hex_dump_line(FILE *stream, char *buf, size_t buf_size, size_t width);
+void dump_data(FILE *stream, char *buf, size_t bufsize, size_t nbytes_recvd);
+int find_string_2bufs(char *buf1, char *buf2, char *pat);
+void ascii_dump_buf(FILE *stream, char *buf, size_t buf_size);
 
-#ifndef HEXDUMP_DATA
-#define HEXDUMP_DATA 1
-#endif
+// Append n bytes from src to buffer's data, growing it if necessary.
+// Return 0 on fail.
+// Return 1 on success.
+int
+buf_append(Buffer *b, char *src, size_t n)
+{
+    if (b->n_items + n > b->n_alloc) {
+        char *ptr = realloc(b->data, b->n_alloc + BUFFER_GROWTH);
+        if (!ptr) return 0;
+        b->data = ptr;
+    }
+    memcpy(b->data + b->n_items, src, n);
+    b->n_items += n;
+    return 1;
+}
 
-#ifndef DUMP_WIDTH
-#define DUMP_WIDTH 10
-#endif
+// Append strlen(src) bytes from src to buffer's data, growing it if necessary.
+// Return 0 on fail.
+// Return 1 on success.
+int
+buf_append_str(Buffer *b, char *src)
+{
+    return buf_append(b, src, strlen(src));
+}
 
-#define REQ_BUF_SIZE 1024
-#define RES_BUF_SIZE 8192
-
-#define CONN_STATUS_READING   1
-#define CONN_STATUS_WRITING   2
-#define CONN_STATUS_WAITING   3
-#define CONN_STATUS_CLOSING   4
-#define CONN_STATUS_CLOSED    5
-
-typedef struct {
-    int fd;
-    struct pollfd *pollfd;
-    // NOTE: both req and res will be changed to dynamic char buffers
-    Http_Request *req;
-    char req_buf[REQ_BUF_SIZE];
-    size_t req_buf_i;           // Points to char up to which data was read
-    char res_buf[RES_BUF_SIZE];
-    size_t res_buf_i;           // Points to char up to which data was sent
-    int status;
-    int read_tries_left;        // read_request tries left until force closing
-    int write_tries_left;       // write_response tries left until force closing
-} Connection;
-
-// TODO: fill with data in main
-typedef struct {
-    char *cwd;
-    char *serve_dir;
-    char *port;
-    int sock;
-    char ip[INET6_ADDRSTRLEN];
-    struct addrinfo addrinfo;
-} Server;
+// Free all parts of a Buffer
+void
+buf_free(Buffer *b)
+{
+    free(b->data);
+}
 
 /* NOTE: this is a stub while conn is static and has static buffers */
 void
@@ -89,22 +88,7 @@ create_connection(int fd, struct pollfd *pfd)
     };
 }
 
-typedef struct {
-    struct pollfd pollfds[20];
-    nfds_t pollfd_count;
-    Connection conns[21]; // First conn is ignored
-} Poll_Queue;
-
 static Poll_Queue poll_queue;
-
-int sockbind(struct addrinfo *ai);
-int send_buf(int sock, char *buf, size_t nbytes);
-int send_str(int sock, char *buf);
-void *get_in_addr(struct sockaddr *sa);
-unsigned short get_in_port(struct sockaddr *sa);
-void hex_dump_line(FILE *stream, char *buf, size_t buf_size, size_t width);
-void dump_data(FILE *stream, char *buf, size_t bufsize, size_t nbytes_recvd);
-int find_string_2bufs(char *buf1, char *buf2, char *pat);
 
 int
 init_server(char *port, struct addrinfo *server_addrinfo)
@@ -266,34 +250,91 @@ read_request(Connection *conn)
 }
 
 int
+file_list_to_html(File_List *fl, Buffer *buf)
+{
+    int succ = buf_append_str(
+        buf,
+        "<!DOCTYPE html><html>"
+        "<head><style>"
+        "* { font-family: monospace; }\n"
+        "table { border: none; margin: 1rem; }\n"
+        "td { padding-right: 2rem; }\n"
+        "</style></head>"
+        "<body><table>\n");
+    if (!succ)
+        return 0;
+
+    for (size_t i = 0; i < fl->len; i++) {
+        // TODO: replace with buf_sprintf later
+
+        // Write file name
+        succ &= buf_append_str(buf, "<tr><td>");
+        succ &= buf_append_str(buf, fl->files[i].name);
+        succ &= buf_append_str(buf, get_file_type_suffix(fl->files + i));
+
+        // Write file size
+        succ &= buf_append_str(buf, "</td><td>");
+        if (!fl->files[i].is_dir) {
+            char tmp[32];
+            sprintf(tmp, "%ld", fl->files[i].size);
+            succ &= buf_append_str(buf, tmp);
+        }
+        succ &= buf_append_str(buf, "</td></tr>\n");
+        if (!succ)
+            return 0;
+    }
+
+    if (!buf_append_str(buf, "</table></body></html>\r\n"))
+        return 0;
+
+    return succ;
+}
+
+int
 write_response(Server *serv, Connection *conn)
 {
+    int success = 0;
 
+    // Get file list
     File_List *fl = ls(serv->serve_dir);
-    int succ = send_str(conn->fd, "HTTP/1.1 200\r\n\r\n");
+    if (!fl)
+        goto cleanup;
 
-    char res[RES_BUF_SIZE];
-    size_t ri = 0;
-    ri += sprintf(res + ri, "<!DOCTYPE html><html><body><ul>\n");
-    for (size_t i = 0; i < fl->len; i++) {
-        ri += sprintf(res + ri,
-                      "<li>%s%s</li>\n",
-                      fl->files[i].name,
-                      get_file_type_suffix(fl->files + i));
-    }
-    ri += sprintf(res + ri, "</ul></body></html>\r\n");
-    succ = send_str(conn->fd, res);
-    free(fl);
+    Buffer res = {
+        .data = malloc(RES_BUF_SIZE),
+        .n_items = 0,
+        .n_alloc = RES_BUF_SIZE,
+    };
+    if (!res.data)
+        goto cleanup;
+
+    // Write first line into res
+    if (!buf_append_str(&res, "HTTP/1.1 200\r\n\r\n"))
+        goto cleanup;
+
+    // Write html into res
+    if (!file_list_to_html(fl, &res))
+        goto cleanup;
+
+    if (!buf_append_str(&res, "\r\n"))
+        goto cleanup;
+
+    // Send res
+    success = send_buf(conn->fd, res.data, res.n_items);
 
     // TODO: implement code below
     // file_list = scandir("./" + conn->req->path);
     // html = file_list_to_html(filelist);
     // conn->res_buf = make_http_response(status, headers, html);
     // send(conn->fd, conn->res_buf);
+
+cleanup:
+    buf_free(&res);
+    free(fl);
+
     conn->status = CONN_STATUS_CLOSING;
     conn->pollfd->events = 0;
-
-    return succ;
+    return success;
 }
 
 /*
@@ -336,6 +377,7 @@ main(int argc, char **argv)
         port = argv[2];
     }
 
+    // TODO: fill with data here later
     Server serv = {0};
     serv.serve_dir = path;
     serv.port = port;
@@ -546,7 +588,6 @@ sockbind(struct addrinfo *ai)
     return s;
 }
 
-// TODO: incorporate this into the poll() loop
 int
 send_buf(int sock, char *buf, size_t len)
 {

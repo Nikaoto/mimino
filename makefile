@@ -10,7 +10,7 @@ all: mimino
 # fast: mimino.c
 # 	$(CC) $(FAST_CFLAGS) mimino.c -o $@
 
-mimino: mimino.o ascii.h http.o dir.o
+mimino: mimino.h mimino.o ascii.h http.o dir.o
 	$(CC) $^ $(CFLAGS) -o $@
 
 %.o: %.c %.h
