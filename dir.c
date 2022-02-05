@@ -17,6 +17,33 @@ print_file_info(FILE *f, File *file)
     fprintf(f, "}\n");
 }
 
+// Return a newly allocated string of p2 appended to p1.
+// Return p1 if p2 is either "." or "/" or "./" or "/." or "./.".
+// Therefore, the caller must check if returned pointer == p1.
+// Return NULL on error.
+char*
+resolve_path(char *p1, char *p2)
+{
+    if (!strcmp(".", p2) || !strcmp("/", p2) ||
+        !strcmp("./", p2) || !strcmp("/.", p2) ||
+        !strcmp("./.", p2))
+        return p1;
+
+    size_t l1 = strlen(p1);
+    size_t l2 = strlen(p2);
+    char *res = malloc(l1 + l2);
+    if (!res) return NULL;
+    memcpy(res, p1, l1);
+
+    if (res[l1 - 1] == '/') {
+        while (*p2 == '/')
+            p2++;
+    }
+
+    strcpy(res + l1, p2);
+    return res;
+}
+
 char*
 get_human_file_perms(File *f)
 {
@@ -195,17 +222,55 @@ sort_file_list (File_List *fl)
     }
 }
 
+void
+print_stat_error(int err, char *path, int is_link)
+{
+    if (is_link) {
+        fprintf(stderr, "Failed stat on file linked from \"%s\": ", path);
+    } else {
+        fprintf(stderr, "Failed stat on file \"%s\": ", path);
+    }
+    switch (err) {
+    case EACCES:
+        fprintf(stderr, "(EACCES) access denied.\n");
+        break;
+    case ELOOP:
+        fprintf(stderr, "(ELOOP) too many links.\n");
+        break;
+    case ENAMETOOLONG:
+        fprintf(stderr, "(ENAMETOOLONG) path too long.\n");
+        break;
+    case ENOENT:
+        fprintf(stderr,
+                "(ENOENT) component of path does not exist or "
+                "is a dangling symbolic link.\n");
+        break;
+    case ENOMEM:
+        fprintf(stderr,
+                "(ENOMEM) out of memory.\n");
+        break;
+    case EOVERFLOW:
+        fprintf(stderr,
+                "(EOVERFLOW) stats can't fit into statbuf struct; "
+                "may happen when running 32 bit program on a 64 "
+                "bit machine.\n");
+    default:
+        fprintf(stderr, "unknown error\n");
+        break;
+    }
+}
+
 File_List*
 ls(char *dir)
 {
-    int err;
-    //int saved_errno;
-
     // Get dirent list
     size_t dir_len = strlen(dir);
     struct dirent **namelist;
     int n = scandir(dir, &namelist, NULL, NULL);
     if (n == -1) {
+        int saved_errno = errno;
+        fprintf(stderr, "Failed scandir() on \"%s\"\n", dir);
+        errno = saved_errno;
         perror("scandir()");
         return NULL;
     }
@@ -226,12 +291,9 @@ ls(char *dir)
 
         // Get stats
         struct stat sb;
-        err = lstat(full_path, &sb);
+        int err = lstat(full_path, &sb);
         if (err) {
-            //saved_errno = errno;
-            perror("lstat()");
-            fprintf(stderr, "Failed on file \"%s\"\n", full_path);
-            // TODO: handle the error in saved_errno
+            print_stat_error(errno, full_path, 0);
         }
 
         // Save
@@ -247,10 +309,7 @@ ls(char *dir)
         if (file_list->files[i].is_link) {
             err = stat(full_path, &sb);
             if (err) {
-                //saved_errno = errno;
-                perror("lstat()");
-                fprintf(stderr, "Failed on file \"%s\"\n", full_path);
-                // TODO: handle the error in saved_errno
+                print_stat_error(errno, full_path, 1);
             }
 
             file_list->files[i].is_dir = S_ISDIR(sb.st_mode);

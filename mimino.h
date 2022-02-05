@@ -1,16 +1,17 @@
 #ifndef _MIMINO_H
 #define _MIMINO_H
 
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <poll.h>
+#include "http.h"
+#include "dir.h"
+
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-#ifndef HEXDUMP_DATA
 #define HEXDUMP_DATA 1
-#endif
-
-#ifndef DUMP_WIDTH
 #define DUMP_WIDTH 10
-#endif
 
 #define REQ_BUF_SIZE 1024
 #define RES_BUF_SIZE 8192
@@ -20,12 +21,6 @@
 #define CONN_STATUS_WAITING   3
 #define CONN_STATUS_CLOSING   4
 #define CONN_STATUS_CLOSED    5
-
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <poll.h>
-#include "http.h"
-#include "dir.h"
 
 typedef struct {
     char *data;
@@ -50,8 +45,8 @@ typedef struct {
 } Connection;
 
 typedef struct {
-    char *cwd;
-    char *serve_dir;
+    char *serve_path;
+    char *index_path;
     char *port;
     int sock;
     char ip[INET6_ADDRSTRLEN];
@@ -61,7 +56,7 @@ typedef struct {
 typedef struct {
     struct pollfd pollfds[20];
     nfds_t pollfd_count;
-    Connection conns[21]; // First conn is ignored
+    Connection conns[20];
 } Poll_Queue;
 
 #endif // _MIMINO_H

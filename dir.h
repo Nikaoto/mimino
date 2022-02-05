@@ -23,6 +23,7 @@ typedef struct {
 
 File_List* ls(char *dir);
 
+char* resolve_path(char *p1, char *p2);
 char* get_file_type_suffix(File *f);
 char* get_human_file_size(off_t size);
 char* get_human_file_perms(File *f);

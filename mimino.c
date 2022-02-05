@@ -23,7 +23,6 @@
 
 int sockbind(struct addrinfo *ai);
 int send_buf(int sock, char *buf, size_t nbytes);
-int send_str(int sock, char *buf);
 void *get_in_addr(struct sockaddr *sa);
 unsigned short get_in_port(struct sockaddr *sa);
 void hex_dump_line(FILE *stream, char *buf, size_t buf_size, size_t width);
@@ -210,8 +209,9 @@ accept_new_conn(int listen_sock)
     return newsock;
 }
 
-// Returns 1 if read finished successfully
-// Returns 0 otherwise (even if an incomplete read happenned)
+// Return 1 if done reading completely.
+// Return 0 if an incomplete read happened.
+// Return -1 on fatal error or max retry reached.
 int
 read_request(Connection *conn)
 {
@@ -222,15 +222,12 @@ read_request(Connection *conn)
         if (errno == EWOULDBLOCK || errno == EAGAIN || errno == EINTR) {
             if (conn->read_tries_left == 0) {
                 fprintf(stderr, "Reached max read tries for conn\n");
-                conn->status = CONN_STATUS_CLOSING;
-                conn->pollfd->events = 0;
-                return 0;
+                return -1;
             }
             conn->read_tries_left--;
         } else { // Some other ESOMETHING error
             perror("recv()");
-            conn->status = CONN_STATUS_CLOSING;
-            conn->pollfd->events = 0;
+            return -1;
         }
         return 0;
     }
@@ -240,8 +237,6 @@ read_request(Connection *conn)
     // NOTE: The "\r\n\r\n" might be too limited
     if (n == 0 || strstr(conn->req_buf, "\r\n\r\n")) {
         // Finished reading
-        conn->status = CONN_STATUS_WRITING;
-        conn->pollfd->events = POLLOUT;
         return 1;
     }
 
@@ -298,13 +293,32 @@ file_list_to_html(File_List *fl, Buffer *buf)
     return succ;
 }
 
+// TODO: make write_response work with poll() loop so that it can resume sending
+// TODO: clean up the gotos
+// where it left off.
+// Return 1 if done writing completely.
+// Return 0 if an incomplete read happened.
+// Return -1 on fatal error or max retry reached.
 int
 write_response(Server *serv, Connection *conn)
 {
-    int success = 0;
+    int result = 0;
+
+    char *path = resolve_path(serv->serve_path, conn->req->path);
+
+    // TODO: if path is higher than serve_path, return 403
 
     // Get file list
-    File_List *fl = ls(serv->serve_dir);
+    // FIXME: favicon hack
+    if (!strcmp(path, "./favicon.ico")) {
+        result = 1;
+        if (path != serv->serve_path)
+            free(path);
+        goto finish;
+    }
+    File_List *fl = ls(path);
+    if (path != serv->serve_path)
+        free(path);
     if (!fl)
         goto cleanup;
 
@@ -328,21 +342,15 @@ write_response(Server *serv, Connection *conn)
         goto cleanup;
 
     // Send res
-    success = send_buf(conn->fd, res.data, res.n_items);
-
-    // TODO: implement code below
-    // file_list = scandir("./" + conn->req->path);
-    // html = file_list_to_html(filelist);
-    // conn->res_buf = make_http_response(status, headers, html);
-    // send(conn->fd, conn->res_buf);
+    result = send_buf(conn->fd, res.data, res.n_items);
 
 cleanup:
     buf_free(&res);
     free(fl);
-
+finish:
     conn->status = CONN_STATUS_CLOSING;
     conn->pollfd->events = 0;
-    return success;
+    return result;
 }
 
 /*
@@ -363,9 +371,11 @@ close_connection(Poll_Queue *pq, nfds_t i)
 
     pq->conns[i].status = CONN_STATUS_CLOSED;
 
-    // Copy last pollfd onto current pollfd
-    if (i != pq->pollfd_count - 1)
+    // Copy last pollfd and conn onto current pollfd and conn
+    if (i != pq->pollfd_count - 1) {
         pq->pollfds[i] = pq->pollfds[pq->pollfd_count - 1];
+        pq->conns[i] = pq->conns[pq->pollfd_count - 1];
+    }
 
     pq->pollfd_count--;
 }
@@ -387,7 +397,7 @@ main(int argc, char **argv)
 
     // TODO: fill with data here later
     Server serv = {0};
-    serv.serve_dir = path;
+    serv.serve_path = path;
     serv.port = port;
 
     // Init server
@@ -415,13 +425,16 @@ main(int argc, char **argv)
         return 1;
     }
 
-    // Init poll_queue
+    // Add listen_sock to poll_queue it
     poll_queue.pollfds[0] = (struct pollfd) {
         .fd = listen_sock,
         .events = POLLIN,
         .revents = 0,
     };
     poll_queue.pollfd_count = 1;
+    // NOTE: This connection won't be used; it's the listen socket
+    poll_queue.conns[0] = create_connection(listen_sock,
+                                            &poll_queue.pollfds[0]);
 
     // Main loop
     while (1) {
@@ -437,14 +450,20 @@ main(int argc, char **argv)
         }
 
         // Accept new connection
-        // NOTE: pollfds[0].fd is the listen_sock
+        // pollfds[0].fd is the listen_sock
         if (poll_queue.pollfds[0].revents & POLLIN) {
             int newsock = accept_new_conn(listen_sock);
             if (newsock != -1) {
                 // Update poll_queue
                 poll_queue.pollfd_count++;
                 int i = poll_queue.pollfd_count - 1;
-                // TODO: check bounds for the arrays
+                /*
+                  TODO: check bounds for the arrays. If not fixed,
+                  ths will blow up.
+
+                  Also, make sure to grow conns array in tandem
+                  with pollfds array.
+                 */
                 poll_queue.pollfds[i] = (struct pollfd) {
                     .fd = newsock,
                     .events = POLLIN,
@@ -462,37 +481,64 @@ main(int argc, char **argv)
 
         // Iterate poll_queue (starts from 1, skipping listen_sock)
         for (nfds_t fd_i = 1; fd_i < open_conn_count; fd_i++) {
-            struct pollfd *pfd = &poll_queue.pollfds[fd_i];
             Connection *conn = &poll_queue.conns[fd_i];
-            switch (poll_queue.conns[fd_i].status) {
+
+            switch (conn->status) {
             case CONN_STATUS_READING:
-                if (pfd->revents & POLLIN) {
-                    int finished_reading = read_request(conn);
-                    if (finished_reading) {
+                if (conn->pollfd->revents & POLLIN) {
+                    int status = read_request(conn);
+                    printf("read_request %ld status: %i\n", fd_i, status);
+                    if (status == -1) {
+                        // Start closing when reading failed
+                        conn->status = CONN_STATUS_CLOSING;
+                        conn->pollfd->events = 0;
+                    } else if (status == 1) {
+                        // Parse request when reading done
                         Http_Request *req = parse_http_request(conn->req_buf);
 
-                        // Close on invalid request
+                        // Close on parse error
                         if (req->error) {
+                            fprintf(stdout, "Parse error: %s\n", req->error);
                             conn->status = CONN_STATUS_CLOSING;
                             conn->pollfd->events = 0;
                             close_connection(&poll_queue, fd_i);
-                            free_http_request(req);
                         }
 
+                        // Start writing
                         conn->req = req;
-                        print_http_request(stdout, conn->req);
+                        conn->status = CONN_STATUS_WRITING;
+                        conn->pollfd->events = POLLOUT;
                     }
                 }
                 break;
             case CONN_STATUS_WRITING:
-                if (pfd->revents & POLLOUT) {
-                    write_response(&serv, conn);
-                    // TODO: think of a better way to close the conn here
-                    close_connection(&poll_queue, fd_i);
+                if (conn->pollfd->revents & POLLOUT) {
+                    printf("write_response %ld\n", fd_i);
+                    int status = write_response(&serv, conn);
+                    if (status == 1) {
+                        // Close when done.
+                        // Even HTTP errors like 5xx or 4xx go here.
+                        free_http_request(conn->req);
+                        close_connection(&poll_queue, fd_i);
+                    } else if (status == -1) {
+                        // Fatal error encountered and can't send data.
+                        // TODO: use conn->res->error instead
+                        //       (After creating Http_Response struct)
+                        if (conn->req->error) {
+                            fprintf(stdout,
+                                    "Error when writing response: %s\n",
+                                    conn->req->error);
+                            free_http_request(conn->req);
+                            conn->status = CONN_STATUS_CLOSING;
+                            conn->pollfd->events = 0;
+                            close_connection(&poll_queue, fd_i);
+                        }
+                    }
                 }
                 break;
             case CONN_STATUS_WAITING:
                 fprintf(stdout, "CONN_STATUS_WAITING not implemented\n");
+            // TODO: get rid of CONN_STATUS_CLOSING
             case CONN_STATUS_CLOSING:
                 close_connection(&poll_queue, fd_i);
                 break;
@@ -594,6 +640,9 @@ sockbind(struct addrinfo *ai)
     return s;
 }
 
+// Return 1 on success
+// Return 0 on nothing sent
+// Return -1 on error
 int
 send_buf(int sock, char *buf, size_t len)
 {
@@ -605,10 +654,11 @@ send_buf(int sock, char *buf, size_t len)
             switch (saved_errno) {
             case EINTR:
             case EAGAIN:
+                // FIXME: This can loop forever
                 continue;
             case ECONNRESET:
             default:
-                return 0;
+                return -1;
                 break;
             }
         } else if (sent == 0) {
@@ -619,12 +669,6 @@ send_buf(int sock, char *buf, size_t len)
     }
 
     return 1;
-}
-
-inline int
-send_str(int sock, char *buf)
-{
-    return send_buf(sock, buf, strlen(buf));
 }
 
 // Searches for pat in buf1 concatenated with buf2.
