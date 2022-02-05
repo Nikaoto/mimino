@@ -2,8 +2,6 @@
 
 WIP http server for educational purposes.
 
-Needs to be "faster" than nginx before April 1st.
-
 ## Usage
 - `mimino [filename]` serves a single file.
 - `mimino [dirname]` serves a directory.
