@@ -265,7 +265,7 @@ file_list_to_html(File_List *fl, Buffer *buf)
         return 0;
 
     for (size_t i = 0; i < fl->len; i++) {
-        // TODO: replace with buf_sprintf later
+        // TODO: replace with buf_sprintf sometime later
 
         // Write file name
         succ &= buf_append_str(buf, "<tr><td>");
@@ -276,10 +276,18 @@ file_list_to_html(File_List *fl, Buffer *buf)
         succ &= buf_append_str(buf, "</td><td>");
         if (!fl->files[i].is_dir) {
             char *tmp = get_human_file_size(fl->files[i].size);
+            succ &= (tmp != NULL);
             succ &= buf_append_str(buf, tmp);
             free(tmp);
         }
-        succ &= buf_append_str(buf, "</td></tr>\n");
+        succ &= buf_append_str(buf, "</td><td>\n");
+
+        // Write file permissions
+        char *tmp = get_human_file_perms(fl->files + i);
+        succ &= (tmp != NULL);
+        succ &= buf_append_str(buf, tmp);
+        free(tmp);
+
         if (!succ)
             return 0;
     }
@@ -478,9 +486,7 @@ main(int argc, char **argv)
                 break;
             case CONN_STATUS_WRITING:
                 if (pfd->revents & POLLOUT) {
-                    fprintf(stdout, "send()ing data\n");
-                    fprintf(stdout, "%d\n", write_response(&serv, conn));
-                    fprintf(stdout, "Finished send()ing\n");
+                    write_response(&serv, conn);
                     // TODO: think of a better way to close the conn here
                     close_connection(&poll_queue, fd_i);
                 }

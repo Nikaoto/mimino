@@ -18,10 +18,57 @@ print_file_info(FILE *f, File *file)
 }
 
 char*
+get_human_file_perms(File *f)
+{
+    char *str = malloc(10);
+    if (!str) return NULL;
+
+    memset(str, '-', 9);
+
+    // Link / dir bit
+    if (f->is_link && f->is_dir) {
+        str[0] = 'o';
+    } else if (f->is_link) {
+        str[0] = 'l';
+    } else if (f->is_dir) {
+        str[0] = 'd';
+    }
+
+    // User
+    if (S_IRUSR & f->mode)
+        str[1] = 'r';
+    if (S_IWUSR & f->mode)
+        str[2] = 'w';
+    if (S_IXUSR & f->mode)
+        str[3] = 'x';
+
+    // Group
+    if (S_IRGRP & f->mode)
+        str[4] = 'r';
+    if (S_IWGRP & f->mode)
+        str[5] = 'w';
+    if (S_IXGRP & f->mode)
+        str[6] = 'x';
+
+    // World
+    if (S_IROTH & f->mode)
+        str[7] = 'r';
+    if (S_IWOTH & f->mode)
+        str[8] = 'w';
+    if (S_IXOTH & f->mode)
+        str[9] = 'x';
+
+    str[10] = '\0';
+
+    return str;
+}
+
+char*
 get_human_file_size(off_t size)
 {
     #define LEN 22
     char *str = malloc(LEN);
+    if (!str) return NULL;
 
     if (size < KB_SIZE) {
         snprintf(str, LEN, "%ld", size);
@@ -168,14 +215,11 @@ ls(char *dir)
     memcpy(full_path, dir, dir_len);
     full_path[dir_len] = '\0';
 
-    fprintf(stdout, "Scanning dir \"%s\"\n", full_path);
-
     // Copy dirents into file list
     for (size_t i = 0; i < file_list->len; i++) {
         // Resolve full path
         char *file_name = namelist[i]->d_name;
         strncpy(full_path + dir_len, file_name, 256);
-        printf("full_path: '%s'\n", full_path);
 
         // Get stats
         struct stat sb;

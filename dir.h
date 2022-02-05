@@ -25,6 +25,7 @@ File_List* ls(char *dir);
 
 char* get_file_type_suffix(File *f);
 char* get_human_file_size(off_t size);
+char* get_human_file_perms(File *f);
 
 #endif // _MIMINO_DIR_H
 
