@@ -27,7 +27,7 @@ get_human_file_perms(File *f)
 
     // Link / dir bit
     if (f->is_link && f->is_dir) {
-        str[0] = 'o';
+        str[0] = 'l';
     } else if (f->is_link) {
         str[0] = 'l';
     } else if (f->is_dir) {
@@ -91,8 +91,11 @@ get_file_type_suffix(File *f)
 {
     static char *dir = "/";
     static char *link = " ->";
+    static char *dirlink = "/ ->";
     static char *reg = " ";
 
+    if (f->is_dir && f->is_link)
+        return dirlink;
     if (f->is_dir)
         return dir;
     if (f->is_link)
@@ -120,20 +123,20 @@ compare_file_names(char *a, char *b)
     // a non alpha-numeric character (tilde, dot, comma...).
     // But prioritize those starting with a dot most.
     if (a[0] == '.' && b[0] == '.')
-        return strcmp(a, b);
+        return -strcoll(a, b);
     else if (a[0] == '.')
-        return -1;
-    else if (b[0] == '.')
         return 1;
+    else if (b[0] == '.')
+        return -1;
 
     if (!is_alnum(a[0]) && !is_alnum(b[0]))
-        return strcmp(a, b);
+        return -strcoll(a, b);
     else if (!is_alnum(a[0]))
-        return -1;
-    else if (!is_alnum(b[0]))
         return 1;
+    else if (!is_alnum(b[0]))
+        return -1;
 
-    return strcmp(a, b);
+    return -strcoll(a, b);
 }
 
 // Return -1 if first arg greater
@@ -143,12 +146,12 @@ int
 compare_files(File *a, File *b)
 {
     // First come directories, then other file types.
-    if (S_ISDIR(a->mode) && S_ISDIR(b->mode))
+    if (a->is_dir && b->is_dir)
         return compare_file_names(a->name, b->name);
-    else if (S_ISDIR(a->mode))
-        return -1;
-    else if (S_ISDIR(b->mode))
+    else if (a->is_dir)
         return 1;
+    else if (b->is_dir)
+        return -1;
 
      return compare_file_names(a->name, b->name);
 }
@@ -184,8 +187,8 @@ sort_file_list (File_List *fl)
     for (size_t i = curr_dir_found + prev_dir_found; i < fl->len; i++) {
         size_t smallest = i;
         // Linear search to find smallest
-        for (size_t j = smallest + 1; j < fl->len; j++) {
-            if (compare_files(fl->files + smallest, fl->files + j) == 1)
+        for (size_t j = i + 1; j < fl->len; j++) {
+            if (compare_files(fl->files + smallest, fl->files + j) < 0)
                 smallest = j;
         }
         swap_in_file_list(fl, smallest, i);
@@ -239,6 +242,20 @@ ls(char *dir)
             .is_dir = S_ISDIR(sb.st_mode),
             .is_link = S_ISLNK(sb.st_mode),
         };
+
+        // If link, get data about the linked file
+        if (file_list->files[i].is_link) {
+            err = stat(full_path, &sb);
+            if (err) {
+                //saved_errno = errno;
+                perror("lstat()");
+                fprintf(stderr, "Failed on file \"%s\"\n", full_path);
+                // TODO: handle the error in saved_errno
+            }
+
+            file_list->files[i].is_dir = S_ISDIR(sb.st_mode);
+            file_list->files[i].size = sb.st_size;
+        }
 
         //print_file_info(stdout, &(file_list->files[i]));
         free(namelist[i]);
