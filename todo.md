@@ -1,4 +1,7 @@
 ## TODO
+- escape < > & \ " in html
+- use readdir() instead of scandir() ~/src/darkhttpd/darkhttpd.c:1830:0
+- timeout for lingering connections
 - something about changing the GID and UID of the UNIX-domain socket file
 - support ipv6 (just start listen()ing on one ipv6 socket)
 - read about keep-alive. Is it worth implementing?
