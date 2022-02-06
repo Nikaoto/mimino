@@ -179,6 +179,10 @@ free_http_request(Http_Request *req)
 void
 print_http_request(FILE *f, Http_Request *req)
 {
+    if (!req) {
+        fprintf(f, "(Http_Request) NULL\n");
+        return;
+    }
     fprintf(f, "(Http_Request) {\n");
     fprintf(f, "  .method = %s,\n", req->method);
     fprintf(f, "  .path = %s,\n", req->path);

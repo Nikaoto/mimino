@@ -7,6 +7,7 @@ WIP http server for educational purposes.
 - `mimino [dirname]` serves a directory.
 
 ## TODO
+- rename `free_*` functions to `free_*_parts`
 - Skim RFCs
   - [HTTP/1.1 - Syntax & Routing (main)](https://datatracker.ietf.org/doc/html/rfc7230)
   - [HTTP/1.1 - Status Codes, Methods & Headers ](https://datatracker.ietf.org/doc/html/rfc7231)

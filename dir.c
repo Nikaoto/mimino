@@ -29,18 +29,28 @@ resolve_path(char *p1, char *p2)
         !strcmp("./.", p2))
         return p1;
 
+    // Allocate enough size
     size_t l1 = strlen(p1);
     size_t l2 = strlen(p2);
-    char *res = malloc(l1 + l2);
+    char *res = malloc(l1 + l2 + 1);
     if (!res) return NULL;
+
+    // Copy over first path
     memcpy(res, p1, l1);
 
-    if (res[l1 - 1] == '/') {
-        while (*p2 == '/')
-            p2++;
-    }
+    size_t ri = l1 - 1;
 
-    strcpy(res + l1, p2);
+    // Remove extra '/'
+    if (res[ri] == '/' && *p2 == '/')
+        p2++;
+
+    // Add '/' if missing
+    if (res[ri] != '/' && *p2 != '/')
+        res[++ri] = '/';
+
+    ri++;
+
+    strcpy(res + ri, p2);
     return res;
 }
 
@@ -260,11 +270,107 @@ print_stat_error(int err, char *path, int is_link)
     }
 }
 
-File_List*
-ls(char *dir)
+// Return strdup-ed base name from given path.
+char*
+get_base_name(char *path)
 {
+    char *ret;
+    size_t l = strlen(path);
+    if (l == 1 && (*path == '/' || *path == '.')) {
+        ret = strdup(path);
+        return ret;            
+    }
+
+    char *copy_from = path + l - 1;
+    size_t copy_len = 1;
+
+    // If path ends with '/'
+    if (*copy_from == '/') {
+        copy_from--;
+    }
+
+    while (copy_from != path) {
+        if (*copy_from == '/') {
+            copy_from++;
+            copy_len--;
+            break;
+        }
+        copy_from--;
+        copy_len++;
+    }
+
+    return strndup(copy_from, copy_len);
+}
+
+// Read data from file at given path into File struct.
+// Return -1 and write NULL_FILE into f on complete failure.
+// Return 0 on first lstat success and write link stats into f.
+// Return 1 on complete success.
+int
+read_file_info(File *f, char *path, char *base_name)
+{
+    // Get lstat
+    struct stat sb;
+    int err = lstat(path, &sb);
+    if (err) {
+        print_stat_error(errno, path, 0);
+        *f = NULL_FILE;
+        return -1;
+    }
+
+    // Read data into *f
+    char *name = strdup(base_name);
+    if (!name) {
+        *f = NULL_FILE;
+        return -1;
+    }
+    *f = (File) {
+        .name = name,
+        .mode = sb.st_mode,
+        .size = sb.st_size,
+        .is_dir = S_ISDIR(sb.st_mode),
+        .is_link = S_ISLNK(sb.st_mode),
+        .is_null = 0,
+    };
+
+    // If link, get data about the linked file
+    if (f->is_link) {
+        err = stat(path, &sb);
+        if (err) {
+            print_stat_error(errno, path, 1);
+            f->size = 0;
+            return 0;
+        }
+
+        f->is_dir = S_ISDIR(sb.st_mode);
+        f->size = sb.st_size;
+    }
+
+    //print_file_info(stdout, f);
+    return 1;
+}
+
+File_List*
+ls(char *path)
+{
+    char *dir;
+    size_t dir_len;
+    size_t path_len = strlen(path);
+    // Copy path to dir and add trailing '/'
+    if (path[path_len - 1] != '/') {
+        dir = malloc(path_len + 1);
+        if (!dir) return NULL;
+        strcpy(dir, path);
+        dir_len = path_len + 1;
+        dir[dir_len - 1] = '/';
+        dir[dir_len] = '\0';
+    } else {
+        dir = strdup(path);
+        dir_len = path_len;
+        if (!dir) return NULL;
+    }
+
     // Get dirent list
-    size_t dir_len = strlen(dir);
     struct dirent **namelist;
     int n = scandir(dir, &namelist, NULL, NULL);
     if (n == -1) {
@@ -275,13 +381,15 @@ ls(char *dir)
         return NULL;
     }
 
+    // Init file list
     File_List *file_list = malloc(sizeof(File_List));
     file_list->len = (size_t) n;
     file_list->files = malloc(sizeof(File) * file_list->len);
 
+    // Write directory part of full_path
     char *full_path = malloc(sizeof(char) * dir_len + 256);
+    //                   Maximum size of dirent.d_name ^
     memcpy(full_path, dir, dir_len);
-    full_path[dir_len] = '\0';
 
     // Copy dirents into file list
     for (size_t i = 0; i < file_list->len; i++) {
@@ -289,34 +397,7 @@ ls(char *dir)
         char *file_name = namelist[i]->d_name;
         strncpy(full_path + dir_len, file_name, 256);
 
-        // Get stats
-        struct stat sb;
-        int err = lstat(full_path, &sb);
-        if (err) {
-            print_stat_error(errno, full_path, 0);
-        }
-
-        // Save
-        file_list->files[i] = (File) {
-            .name = strndup(file_name, 256),
-            .mode = sb.st_mode,
-            .size = sb.st_size,
-            .is_dir = S_ISDIR(sb.st_mode),
-            .is_link = S_ISLNK(sb.st_mode),
-        };
-
-        // If link, get data about the linked file
-        if (file_list->files[i].is_link) {
-            err = stat(full_path, &sb);
-            if (err) {
-                print_stat_error(errno, full_path, 1);
-            }
-
-            file_list->files[i].is_dir = S_ISDIR(sb.st_mode);
-            file_list->files[i].size = sb.st_size;
-        }
-
-        //print_file_info(stdout, &(file_list->files[i]));
+        read_file_info(file_list->files + i, full_path, file_name);
         free(namelist[i]);
     }
     free(namelist);
@@ -325,4 +406,21 @@ ls(char *dir)
     sort_file_list(file_list);
 
     return file_list;
+}
+
+void
+free_file(File *f)
+{
+    if (f->is_null)
+        return;
+    free(f->name);
+}
+
+void
+free_file_list(File_List *fl)
+{
+    for (size_t i = 0; i < fl->len; i++) {
+        free_file(fl->files + i);
+    }
+    free(fl->files);
 }

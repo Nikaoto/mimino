@@ -14,7 +14,10 @@ typedef struct {
     off_t size;
     int is_dir;
     int is_link;
+    int is_null;
 } File;
+
+#define NULL_FILE (File) { "???", 0, 0, 0, 0, 1 }
 
 typedef struct {
     File *files;
@@ -22,8 +25,11 @@ typedef struct {
 } File_List;
 
 File_List* ls(char *dir);
-
+void free_file(File *f);
+void free_file_list(File_List *fl);
+char* get_base_name(char *path);
 char* resolve_path(char *p1, char *p2);
+int read_file_info(File *f, char *path, char* base_name);
 char* get_file_type_suffix(File *f);
 char* get_human_file_size(off_t size);
 char* get_human_file_perms(File *f);

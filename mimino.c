@@ -46,9 +46,22 @@ buf_append(Buffer *b, char *src, size_t n)
     return 1;
 }
 
-// Append strlen(src) bytes from src to buffer's data, growing it if necessary.
+// Push one byte into buffer's data, growing it if necessary.
 // Return 0 on fail.
 // Return 1 on success.
+int
+buf_push(Buffer *b, char c)
+{
+    if (b->n_items + 1 > b->n_alloc) {
+        char *ptr = realloc(b->data, b->n_alloc + BUFFER_GROWTH);
+        if (!ptr) return 0;
+        b->data = ptr;
+    }
+    b->data[b->n_items] = c;
+    b->n_items++;
+    return 1;
+}
+
 int
 buf_append_str(Buffer *b, char *src)
 {
@@ -57,7 +70,7 @@ buf_append_str(Buffer *b, char *src)
 
 // Free all parts of a Buffer
 void
-buf_free(Buffer *b)
+free_buf(Buffer *b)
 {
     free(b->data);
 }
@@ -203,8 +216,8 @@ accept_new_conn(int listen_sock)
     inet_ntop(their_addr.ss_family,
               get_in_addr((struct sockaddr *)&their_addr),
               their_ip_str, sizeof(their_ip_str));
-    printf("Got connection from %s:%d\n", their_ip_str,
-           ntohs(get_in_port((struct sockaddr *)&their_addr)));
+    /* printf("Got connection from %s:%d\n", their_ip_str, */
+    /*        ntohs(get_in_port((struct sockaddr *)&their_addr))); */
 
     return newsock;
 }
@@ -232,7 +245,7 @@ read_request(Connection *conn)
         return 0;
     }
 
-    dump_data(stdout, conn->req_buf + conn->req_buf_i, n, DUMP_WIDTH);
+    //dump_data(stdout, conn->req_buf + conn->req_buf_i, n, DUMP_WIDTH);
 
     // NOTE: The "\r\n\r\n" might be too limited
     if (n == 0 || strstr(conn->req_buf, "\r\n\r\n")) {
@@ -245,7 +258,29 @@ read_request(Connection *conn)
 }
 
 int
-file_list_to_html(File_List *fl, Buffer *buf)
+buf_append_href(Buffer *buf, File *f, char *req_path)
+{
+    int succ = 1;
+
+    // dirname
+    succ &= buf_append_str(buf, req_path);
+    if (req_path[strlen(req_path) - 1] != '/')
+        succ &= buf_push(buf, '/');
+
+    // basename
+    succ &= buf_append_str(buf, f->name);
+
+    // trailing '/' if given file is a directory
+    if (f->is_dir) {
+        succ &= buf_push(buf, '/');
+    }
+
+    return succ;
+}
+
+// req_path is the path inside the HTTP request
+int
+file_list_to_html(char *req_path, File_List *fl, Buffer *buf)
 {
     int succ = buf_append_str(
         buf,
@@ -261,16 +296,19 @@ file_list_to_html(File_List *fl, Buffer *buf)
 
     for (size_t i = 0; i < fl->len; i++) {
         // TODO: replace with buf_sprintf sometime later
+        File *f = fl->files + i;
 
         // Write file name
-        succ &= buf_append_str(buf, "<tr><td>");
-        succ &= buf_append_str(buf, fl->files[i].name);
-        succ &= buf_append_str(buf, get_file_type_suffix(fl->files + i));
+        succ &= buf_append_str(buf, "<tr><td><a href=\"");
+        succ &= buf_append_href(buf, f, req_path);
+        succ &= buf_append_str(buf, "\">");
+        succ &= buf_append_str(buf, f->name);
+        succ &= buf_append_str(buf, get_file_type_suffix(f));
 
         // Write file size
-        succ &= buf_append_str(buf, "</td><td>");
-        if (!fl->files[i].is_dir) {
-            char *tmp = get_human_file_size(fl->files[i].size);
+        succ &= buf_append_str(buf, "</a></td><td>");
+        if (!f->is_dir) {
+            char *tmp = get_human_file_size(f->size);
             succ &= (tmp != NULL);
             succ &= buf_append_str(buf, tmp);
             free(tmp);
@@ -278,7 +316,7 @@ file_list_to_html(File_List *fl, Buffer *buf)
         succ &= buf_append_str(buf, "</td><td>\n");
 
         // Write file permissions
-        char *tmp = get_human_file_perms(fl->files + i);
+        char *tmp = get_human_file_perms(f);
         succ &= (tmp != NULL);
         succ &= buf_append_str(buf, tmp);
         free(tmp);
@@ -302,13 +340,16 @@ file_list_to_html(File_List *fl, Buffer *buf)
 int
 write_response(Server *serv, Connection *conn)
 {
-    int result = 0;
+    int result = -1;
 
     char *path = resolve_path(serv->serve_path, conn->req->path);
 
+    printf("serve path: %s\n", serv->serve_path);
+    printf("request path: %s\n", conn->req->path);
+    printf("resolved path: %s\n", path);
+
     // TODO: if path is higher than serve_path, return 403
 
-    // Get file list
     // FIXME: favicon hack
     if (!strcmp(path, "./favicon.ico")) {
         result = 1;
@@ -316,27 +357,42 @@ write_response(Server *serv, Connection *conn)
             free(path);
         goto finish;
     }
-    File_List *fl = ls(path);
-    if (path != serv->serve_path)
-        free(path);
-    if (!fl)
-        goto cleanup;
 
     Buffer res = {
         .data = malloc(RES_BUF_SIZE),
         .n_items = 0,
         .n_alloc = RES_BUF_SIZE,
     };
-    if (!res.data)
-        goto cleanup;
+    if (!res.data) goto cleanup;
 
     // Write first line into res
     if (!buf_append_str(&res, "HTTP/1.1 200\r\n\r\n"))
         goto cleanup;
 
-    // Write html into res
-    if (!file_list_to_html(fl, &res))
-        goto cleanup;
+    // Find out if we're listing a dir or serving a file
+    char *base_name = get_base_name(path);
+    if (!base_name) goto cleanup;
+    File file;
+    read_file_info(&file, path, base_name);
+    free(base_name);
+
+    if (file.is_dir) {
+        // Get file list
+        File_List *fl = ls(path);
+        if (!fl) goto cleanup;
+
+        // Write html into res
+        if (!file_list_to_html(conn->req->path, fl, &res)) {
+            free_file_list(fl);
+            free(fl);
+            goto cleanup;
+        }
+        free_file_list(fl);
+        free(fl);
+    } else {
+        if (!buf_append_str(&res, "TODO: read file contents"))
+            goto cleanup;
+    }
 
     if (!buf_append_str(&res, "\r\n"))
         goto cleanup;
@@ -345,8 +401,10 @@ write_response(Server *serv, Connection *conn)
     result = send_buf(conn->fd, res.data, res.n_items);
 
 cleanup:
-    buf_free(&res);
-    free(fl);
+    if (path != serv->serve_path)
+        free(path);
+    free_buf(&res);
+    free_file(&file);
 finish:
     conn->status = CONN_STATUS_CLOSING;
     conn->pollfd->events = 0;
@@ -495,6 +553,7 @@ main(int argc, char **argv)
                     } else if (status == 1) {
                         // Parse request when reading done
                         Http_Request *req = parse_http_request(conn->req_buf);
+                        print_http_request(stdout, req);
 
                         // Close on parse error
                         if (req->error) {
