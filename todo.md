@@ -1,4 +1,7 @@
 ## TODO
+- something about changing the GID and UID of the UNIX-domain socket file
+- support ipv6 (just start listen()ing on one ipv6 socket)
+- read about keep-alive. Is it worth implementing?
 - restrict linking to directories outside serve_dir
 - allow linking to files outside serve_dir
 - serve index.html if present
@@ -47,7 +50,7 @@ mimino-forwarder takes a host->port mapping from the cli:
 mimino-forwarder -h nikaoto.com:8081 -h rawliverclub.com:8082
 ```
 
-### stunnel (or own implementation?)
+### stunnel (or own implementation?) or hitch
 Can write a separate tunnel that just builds with openbsd SSL library and set
 that in front of each mimino process, so I won't need to have SSL crammed into
 mimino itself, keeps it simple.
