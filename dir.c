@@ -328,7 +328,7 @@ read_file_info(File *f, char *path, char *base_name)
         if (err) {
             print_stat_error(errno, path, 1);
             f->size = 0;
-            f->is_broken_link = 0;
+            f->is_broken_link = (errno == ENOENT);
             return 0;
         }
 

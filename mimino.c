@@ -289,6 +289,7 @@ file_list_to_html(char *req_path, File_List *fl, Buffer *buf)
         "* { font-family: monospace; }\n"
         "table { border: none; margin: 1rem; }\n"
         "td { padding-right: 2rem; }\n"
+        ".red { color: crimson; }\n"
         "</style></head>"
         "<body><table>\n");
     if (!succ)
@@ -300,7 +301,10 @@ file_list_to_html(char *req_path, File_List *fl, Buffer *buf)
         // Write file name
         succ &= buf_append_str(buf, "<tr><td><a href=\"");
         succ &= buf_append_href(buf, f, req_path);
-        succ &= buf_append_str(buf, "\">");
+        succ &= buf_push(buf, '"');
+        if (f->is_link && f->is_broken_link)
+            succ &= buf_append_str(buf, " class=\"red\"");
+        succ &= buf_push(buf, '>');
         succ &= buf_append_str(buf, f->name);
         succ &= buf_append_str(buf, get_file_type_suffix(f));
 
