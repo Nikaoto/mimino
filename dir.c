@@ -129,7 +129,7 @@ get_file_type_suffix(File *f)
     static char *dir = "/";
     static char *link = " ->";
     static char *dirlink = "/ ->";
-    static char *reg = " ";
+    static char *reg = "";
 
     if (f->is_dir && f->is_link)
         return dirlink;
@@ -156,6 +156,16 @@ swap_in_file_list(File_List *fl, size_t a, size_t b)
 int
 compare_file_names(char *a, char *b)
 {
+    // First '.', then '..'
+    if (!strcmp(a, "."))
+        return 1;
+    if (!strcmp(b, "."))
+        return -1;
+    if (!strcmp(a, ".."))
+        return 1;
+    if (!strcmp(b, ".."))
+        return -1;
+
     // Sort alphabetically, but prioritize names starting with
     // a non alpha-numeric character (tilde, dot, comma...).
     // But prioritize those starting with a dot most.
@@ -196,32 +206,8 @@ compare_files(File *a, File *b)
 void
 sort_file_list (File_List *fl)
 {
-    // Find '.' and '..'
-    int curr_dir_found = 0;
-    int prev_dir_found = 0;
-    size_t curr_dir, prev_dir;
+    // Insertion sort, don't judge
     for (size_t i = 0; i < fl->len; i++) {
-        if (!strcmp(".", fl->files[i].name)) {
-            curr_dir_found = 1;
-            curr_dir = i;
-        } else if (!strcmp("..", fl->files[i].name)) {
-            prev_dir_found = 1;
-            prev_dir = i;
-        }
-    }
-
-    // Put '.' first
-    if (curr_dir_found) {
-        swap_in_file_list(fl, 0, curr_dir);
-    }
-
-    // Put '..' after '.' or first if it wasn't found
-    if (prev_dir_found) {
-        swap_in_file_list(fl, curr_dir_found, prev_dir);
-    }
-
-    // Do insertion sort for the rest of the array
-    for (size_t i = curr_dir_found + prev_dir_found; i < fl->len; i++) {
         size_t smallest = i;
         // Linear search to find smallest
         for (size_t j = i + 1; j < fl->len; j++) {
