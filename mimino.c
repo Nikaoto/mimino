@@ -30,6 +30,15 @@ void dump_data(FILE *stream, char *buf, size_t bufsize, size_t nbytes_recvd);
 int find_string_2bufs(char *buf1, char *buf2, char *pat);
 void ascii_dump_buf(FILE *stream, char *buf, size_t buf_size);
 
+int
+buf_grow(Buffer *b)
+{
+    char *ptr = realloc(b->data, b->n_alloc + BUFFER_GROWTH);
+    if (!ptr) return 0;
+    b->data = ptr;
+    return 1;
+}
+
 // Append n bytes from src to buffer's data, growing it if necessary.
 // Return 0 on fail.
 // Return 1 on success.
@@ -37,9 +46,7 @@ int
 buf_append(Buffer *b, char *src, size_t n)
 {
     if (b->n_items + n > b->n_alloc) {
-        char *ptr = realloc(b->data, b->n_alloc + BUFFER_GROWTH);
-        if (!ptr) return 0;
-        b->data = ptr;
+        if (!buf_grow(b)) return 0;
     }
     memcpy(b->data + b->n_items, src, n);
     b->n_items += n;
@@ -53,19 +60,66 @@ int
 buf_push(Buffer *b, char c)
 {
     if (b->n_items + 1 > b->n_alloc) {
-        char *ptr = realloc(b->data, b->n_alloc + BUFFER_GROWTH);
-        if (!ptr) return 0;
-        b->data = ptr;
+        if (!buf_grow(b)) return 0;
     }
     b->data[b->n_items] = c;
     b->n_items++;
     return 1;
 }
 
+// Does not copy the null terminator
 int
 buf_append_str(Buffer *b, char *src)
 {
     return buf_append(b, src, strlen(src));
+}
+
+int
+buf_append_href(Buffer *buf, File *f, char *req_path)
+{
+    int succ = 1;
+
+    // dirname
+    succ &= buf_append_str(buf, req_path);
+    if (req_path[strlen(req_path) - 1] != '/')
+        succ &= buf_push(buf, '/');
+
+    // basename
+    succ &= buf_append_str(buf, f->name);
+
+    // trailing '/' if given file is a directory
+    if (f->is_dir) {
+        succ &= buf_push(buf, '/');
+    }
+
+    return succ;
+}
+
+// Does not copy the null terminator
+int
+buf_sprintf(Buffer *buf, char *fmt, ...)
+{
+    va_list fmtargs;
+    size_t len;
+
+    // Determine formatted length
+    va_start(fmtargs, fmt);
+    len = vsnprintf(NULL, 0, fmt, fmtargs);
+    va_end(fmtargs);
+    len++;
+
+    // Grow buffer if necessary
+    if (buf->n_items + len > buf->n_alloc)
+        if (!buf_grow(buf)) return 0;
+
+    va_start(fmtargs, fmt);
+    vsnprintf(buf->data + buf->n_items, len, fmt, fmtargs);
+    va_end(fmtargs);
+
+    // Exclude the null terminator at the end
+    buf->n_items--;
+
+    return 1;
 }
 
 // Free all parts of a Buffer
@@ -255,27 +309,6 @@ read_request(Connection *conn)
 
     conn->req_buf_i += n;
     return 0;
-}
-
-int
-buf_append_href(Buffer *buf, File *f, char *req_path)
-{
-    int succ = 1;
-
-    // dirname
-    succ &= buf_append_str(buf, req_path);
-    if (req_path[strlen(req_path) - 1] != '/')
-        succ &= buf_push(buf, '/');
-
-    // basename
-    succ &= buf_append_str(buf, f->name);
-
-    // trailing '/' if given file is a directory
-    if (f->is_dir) {
-        succ &= buf_push(buf, '/');
-    }
-
-    return succ;
 }
 
 // req_path is the path inside the HTTP request
