@@ -19,8 +19,7 @@
 #define CONN_STATUS_READING   1
 #define CONN_STATUS_WRITING   2
 #define CONN_STATUS_WAITING   3
-#define CONN_STATUS_CLOSING   4
-#define CONN_STATUS_CLOSED    5
+#define CONN_STATUS_CLOSED   4
 
 typedef struct {
     char *data;

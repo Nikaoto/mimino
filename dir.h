@@ -14,10 +14,11 @@ typedef struct {
     off_t size;
     int is_dir;
     int is_link;
+    int is_broken_link;
     int is_null;
 } File;
 
-#define NULL_FILE (File) { "???", 0, 0, 0, 0, 1 }
+#define NULL_FILE (File) { "???", 0, 0, 0, 0, 0, 1 }
 
 typedef struct {
     File *files;

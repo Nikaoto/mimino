@@ -295,7 +295,6 @@ file_list_to_html(char *req_path, File_List *fl, Buffer *buf)
         return 0;
 
     for (size_t i = 0; i < fl->len; i++) {
-        // TODO: replace with buf_sprintf sometime later
         File *f = fl->files + i;
 
         // Write file name
@@ -331,9 +330,8 @@ file_list_to_html(char *req_path, File_List *fl, Buffer *buf)
     return succ;
 }
 
-// TODO: make write_response work with poll() loop so that it can resume sending
+// TODO: make write_response work with poll() loop so that it can resume sending where it left off.
 // TODO: clean up the gotos
-// where it left off.
 // Return 1 if done writing completely.
 // Return 0 if an incomplete read happened.
 // Return -1 on fatal error or max retry reached.
@@ -350,14 +348,6 @@ write_response(Server *serv, Connection *conn)
 
     // TODO: if path is higher than serve_path, return 403
 
-    // FIXME: favicon hack
-    if (!strcmp(path, "./favicon.ico")) {
-        result = 1;
-        if (path != serv->serve_path)
-            free(path);
-        goto finish;
-    }
-
     Buffer res = {
         .data = malloc(RES_BUF_SIZE),
         .n_items = 0,
@@ -365,37 +355,48 @@ write_response(Server *serv, Connection *conn)
     };
     if (!res.data) goto cleanup;
 
-    // Write first line into res
-    if (!buf_append_str(&res, "HTTP/1.1 200\r\n\r\n"))
-        goto cleanup;
-
     // Find out if we're listing a dir or serving a file
     char *base_name = get_base_name(path);
     if (!base_name) goto cleanup;
     File file;
-    read_file_info(&file, path, base_name);
+    int read_result = read_file_info(&file, path, base_name);
     free(base_name);
+    if (read_result == -2) {
+        // Fatal error
+        if (!buf_append_str(&res, "HTTP/1.1 500\r\n\r\n"))
+            goto cleanup;
+    } else if (read_result == -1) {
+        // File not found
+        if (!buf_append_str(&res, "HTTP/1.1 404\r\n\r\n"))
+            goto cleanup;
+        // TODO: buf_append_http_error_msg(404);
+        if (!buf_append_str(&res, "Error 404: file not found\r\n"))
+            goto cleanup;
+    } else {
+        if (!buf_append_str(&res, "HTTP/1.1 200\r\n\r\n"))
+            goto cleanup;
 
-    if (file.is_dir) {
-        // Get file list
-        File_List *fl = ls(path);
-        if (!fl) goto cleanup;
+        if (file.is_dir) {
+            // Get file list
+            File_List *fl = ls(path);
+            if (!fl) goto cleanup;
 
-        // Write html into res
-        if (!file_list_to_html(conn->req->path, fl, &res)) {
+            // Write html into res
+            if (!file_list_to_html(conn->req->path, fl, &res)) {
+                free_file_list(fl);
+                free(fl);
+                goto cleanup;
+            }
             free_file_list(fl);
             free(fl);
-            goto cleanup;
+        } else {
+            if (!buf_append_str(&res, "TODO: read file contents"))
+                goto cleanup;
         }
-        free_file_list(fl);
-        free(fl);
-    } else {
-        if (!buf_append_str(&res, "TODO: read file contents"))
+
+        if (!buf_append_str(&res, "\r\n"))
             goto cleanup;
     }
-
-    if (!buf_append_str(&res, "\r\n"))
-        goto cleanup;
 
     // Send res
     result = send_buf(conn->fd, res.data, res.n_items);
@@ -405,9 +406,7 @@ cleanup:
         free(path);
     free_buf(&res);
     free_file(&file);
-finish:
-    conn->status = CONN_STATUS_CLOSING;
-    conn->pollfd->events = 0;
+
     return result;
 }
 
@@ -428,6 +427,7 @@ close_connection(Poll_Queue *pq, nfds_t i)
     }
 
     pq->conns[i].status = CONN_STATUS_CLOSED;
+    pq->pollfds[i].events = 0;
 
     // Copy last pollfd and conn onto current pollfd and conn
     if (i != pq->pollfd_count - 1) {
@@ -547,19 +547,16 @@ main(int argc, char **argv)
                     int status = read_request(conn);
                     printf("read_request %ld status: %i\n", fd_i, status);
                     if (status == -1) {
-                        // Start closing when reading failed
-                        conn->status = CONN_STATUS_CLOSING;
-                        conn->pollfd->events = 0;
+                        // Reading failed
+                        close_connection(&poll_queue, fd_i);
                     } else if (status == 1) {
-                        // Parse request when reading done
+                        // Reading done, parse request
                         Http_Request *req = parse_http_request(conn->req_buf);
                         print_http_request(stdout, req);
 
                         // Close on parse error
                         if (req->error) {
                             fprintf(stdout, "Parse error: %s\n", req->error);
-                            conn->status = CONN_STATUS_CLOSING;
-                            conn->pollfd->events = 0;
                             close_connection(&poll_queue, fd_i);
                         }
 
@@ -588,8 +585,6 @@ main(int argc, char **argv)
                                     "Error when writing response: %s\n",
                                     conn->req->error);
                             free_http_request(conn->req);
-                            conn->status = CONN_STATUS_CLOSING;
-                            conn->pollfd->events = 0;
                             close_connection(&poll_queue, fd_i);
                         }
                     }
@@ -597,11 +592,9 @@ main(int argc, char **argv)
                 break;
             case CONN_STATUS_WAITING:
                 fprintf(stdout, "CONN_STATUS_WAITING not implemented\n");
-            // TODO: get rid of CONN_STATUS_CLOSING
-            case CONN_STATUS_CLOSING:
-                close_connection(&poll_queue, fd_i);
                 break;
             case CONN_STATUS_CLOSED:
+                close_connection(&poll_queue, fd_i);
                 break;
             }
         }

@@ -289,7 +289,8 @@ get_base_name(char *path)
 }
 
 // Read data from file at given path into File struct.
-// Return -1 and write NULL_FILE into f on complete failure.
+// Return -2 and write NULL_FILE into f on complete failure.
+// Return -1 and write NULL_FILE into f if file doesn't exist.
 // Return 0 on first lstat success and write link stats into f.
 // Return 1 on complete success.
 int
@@ -299,9 +300,10 @@ read_file_info(File *f, char *path, char *base_name)
     struct stat sb;
     int err = lstat(path, &sb);
     if (err) {
-        print_stat_error(errno, path, 0);
+        int saved_errno = errno;
+        print_stat_error(saved_errno, path, 0);
         *f = NULL_FILE;
-        return -1;
+        return saved_errno == ENOENT ? -1 : -2;
     }
 
     // Read data into *f
@@ -316,6 +318,7 @@ read_file_info(File *f, char *path, char *base_name)
         .size = sb.st_size,
         .is_dir = S_ISDIR(sb.st_mode),
         .is_link = S_ISLNK(sb.st_mode),
+        .is_broken_link = 0,
         .is_null = 0,
     };
 
@@ -325,6 +328,7 @@ read_file_info(File *f, char *path, char *base_name)
         if (err) {
             print_stat_error(errno, path, 1);
             f->size = 0;
+            f->is_broken_link = 0;
             return 0;
         }
 
