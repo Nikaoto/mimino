@@ -1,5 +1,5 @@
 ## TODO
-- escape < > & \ " in html
+- support utf8 filenames in dirlisting (check if bits for utf8 set and render them as such)
 - use readdir() instead of scandir() ~/src/darkhttpd/darkhttpd.c:1830:0
 - timeout for lingering connections
 - something about changing the GID and UID of the UNIX-domain socket file
@@ -8,6 +8,7 @@
 - restrict linking to directories outside serve_dir
 - allow linking to files outside serve_dir
 - serve index.html if present
+- url encoding / decoding
 - add flag -p for port
 - add flag -c for chroot to serve_dir at init
 - add flag -e to search for standard xxx.html error files in case of errors (404.html, 500.html ...)

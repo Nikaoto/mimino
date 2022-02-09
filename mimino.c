@@ -27,14 +27,15 @@ void *get_in_addr(struct sockaddr *sa);
 unsigned short get_in_port(struct sockaddr *sa);
 void hex_dump_line(FILE *stream, char *buf, size_t buf_size, size_t width);
 void dump_data(FILE *stream, char *buf, size_t bufsize, size_t nbytes_recvd);
-int find_string_2bufs(char *buf1, char *buf2, char *pat);
 void ascii_dump_buf(FILE *stream, char *buf, size_t buf_size);
 
 int
-buf_grow(Buffer *b)
+buf_grow(Buffer *b, size_t min_growth)
 {
-    char *ptr = realloc(b->data, b->n_alloc + BUFFER_GROWTH);
+    size_t new_size = b->n_alloc + MAX(min_growth, BUFFER_GROWTH);
+    char *ptr = realloc(b->data, new_size);
     if (!ptr) return 0;
+    b->n_alloc = new_size;
     b->data = ptr;
     return 1;
 }
@@ -45,9 +46,12 @@ buf_grow(Buffer *b)
 int
 buf_append(Buffer *b, char *src, size_t n)
 {
+    if (n == 0) return 1;
+
     if (b->n_items + n > b->n_alloc) {
-        if (!buf_grow(b)) return 0;
+        if (!buf_grow(b, n)) return 0;
     }
+
     memcpy(b->data + b->n_items, src, n);
     b->n_items += n;
     return 1;
@@ -60,7 +64,7 @@ int
 buf_push(Buffer *b, char c)
 {
     if (b->n_items + 1 > b->n_alloc) {
-        if (!buf_grow(b)) return 0;
+        if (!buf_grow(b, 1)) return 0;
     }
     b->data[b->n_items] = c;
     b->n_items++;
@@ -110,7 +114,7 @@ buf_sprintf(Buffer *buf, char *fmt, ...)
 
     // Grow buffer if necessary
     if (buf->n_items + len > buf->n_alloc)
-        if (!buf_grow(buf)) return 0;
+        if (!buf_grow(buf, len)) return 0;
 
     va_start(fmtargs, fmt);
     vsnprintf(buf->data + buf->n_items, len, fmt, fmtargs);
@@ -119,6 +123,41 @@ buf_sprintf(Buffer *buf, char *fmt, ...)
     // Exclude the null terminator at the end
     buf->n_items--;
 
+    return 1;
+}
+
+// Return -1 on fopen error
+// Return 0 on read error
+// Return 1 on success
+int
+buf_append_file_contents(Buffer *buf, File *f, char *path)
+{
+    if (buf->n_items + f->size > buf->n_alloc) {
+        buf_grow(buf, f->size);
+    }
+
+    FILE *file_handle = fopen(path, "r");
+    if (!file_handle) {
+        perror("fopen()");
+        return -1;
+    }
+    
+    while (1) {
+        size_t bytes_read = fread(buf->data + buf->n_items, 1, f->size, file_handle);
+        buf->n_items += bytes_read;
+        if (bytes_read < (size_t) f->size) {
+            if (ferror(file_handle)) {
+                fprintf(stdout, "Error when freading() file %s\n", path);
+                fclose(file_handle);
+                return 0;
+            }
+            // EOF
+            fclose(file_handle);
+            return 1;
+        }
+    }
+
+    fclose(file_handle);
     return 1;
 }
 
@@ -427,7 +466,8 @@ write_response(Server *serv, Connection *conn)
             free_file_list(fl);
             free(fl);
         } else {
-            if (!buf_append_str(&res, "TODO: read file contents"))
+            int succ = buf_append_file_contents(&res, &file, path);
+            if (succ == -1 || succ == 0)
                 goto cleanup;
         }
 
@@ -582,7 +622,7 @@ main(int argc, char **argv)
             case CONN_STATUS_READING:
                 if (conn->pollfd->revents & POLLIN) {
                     int status = read_request(conn);
-                    printf("read_request %ld status: %i\n", fd_i, status);
+                    printf("read_request status %i\n", status);
                     if (status == -1) {
                         // Reading failed
                         close_connection(&poll_queue, fd_i);
@@ -606,8 +646,8 @@ main(int argc, char **argv)
                 break;
             case CONN_STATUS_WRITING:
                 if (conn->pollfd->revents & POLLOUT) {
-                    printf("write_response %ld\n", fd_i);
                     int status = write_response(&serv, conn);
+                    printf("write_response status %i\n", status);
                     if (status == 1) {
                         // Close when done.
                         // Even HTTP errors like 5xx or 4xx go here.
@@ -758,20 +798,6 @@ send_buf(int sock, char *buf, size_t len)
     }
 
     return 1;
-}
-
-// Searches for pat in buf1 concatenated with buf2.
-int
-find_string_2bufs(char *buf1, char *buf2, char *pat)
-{
-    // TODO: do this without malloc
-    size_t l1 = strlen(buf1), l2 = strlen(buf2);
-    char *b = malloc(l1 + l2);
-    memcpy(b, buf1, l1);
-    memcpy(b + l1 + 1, buf2, l2);
-    int ret = (strstr(b, pat) != NULL);
-    free(b);
-    return ret;
 }
 
 void
