@@ -29,19 +29,16 @@ hints = {
 res = getaddrinfo("www.example.com", port, &hints, &res);
 sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
 setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-bind(sockfd, res->ai_addr, res->ai_addrlen);
-listen(sockfd, backlog);
-while (newsock = accept(sockfd, &their_addr, their_addr_size))) {
-  recv(newsock, buf, buflen, 0);
-  send(newsock, msg, msglen, 0);
-  close(newsock);
-}
+// bind() is optional here as connect() will do it for us
+connect(sockfd, res->ai_addr, res->ai_addrlen);
+send(sockfd, msg, msglen, 0);
+close(sockfd);
 ```
 
 Hints for getaddrinfo:
 ```
 hints = {
-  .ai_flags = AI_CANONNAME,   // Fill in the remote hots's .ai_canonname
+  .ai_flags = AI_CANONNAME,   // Fill in the remote host's .ai_canonname
   .ai_family = AF_UNSPEC,     // Return ipv4 or ipv6 addr
   .ai_socktype = SOCK_STREAM, // Use TCP
   .ai_protocol = 0,           // Automatically assign
@@ -115,7 +112,7 @@ struct in6_addr
 ```
 
 ## struct `sockaddr_storage`
-Can be case to `sockaddr`, `sockaddr_in` or `sockaddr_in6`. Fits all three.
+Can be cast to `sockaddr`, `sockaddr_in` or `sockaddr_in6`. Fits all three.
 ```
 struct sockaddr_storage
 {
