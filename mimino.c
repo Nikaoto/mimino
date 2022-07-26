@@ -173,9 +173,9 @@ void
 free_connection(Connection *conn)
 {
     free(conn->req);
+    free(conn->res_buf);
     return;
     free(conn->req_buf);
-    free(conn->res_buf);
     free(conn);
 }
 
@@ -187,7 +187,7 @@ create_connection(int fd, struct pollfd *pfd)
         .pollfd = pfd,
         .status = CONN_STATUS_READING,
         .req_buf_i = 0,
-        .res_buf_i = 0,
+        .res_buf = NULL,
         .read_tries_left = 5,
         .write_tries_left = 5,
     };
@@ -406,118 +406,162 @@ file_list_to_html(char *req_path, File_List *fl, Buffer *buf)
     return succ;
 }
 
+typedef struct {
+    void (*func_arr[64])(void*);
+    void *arg_arr[64];
+    int n_items;
+} Defer_Queue;
+
+#define NULL_DEFER_QUEUE ((Defer_Queue) {.n_items = 0});
+
+void
+defer(Defer_Queue *q, void (func)(void*), void *arg)
+{
+    if (q->n_items >= (int) sizeof(q->arg_arr)) {
+        fprintf(stderr, "FATAL ERR: defer queue overflow %d\n", q->n_items);
+        return;
+    }
+
+    q->func_arr[q->n_items] = func;
+    q->arg_arr[q->n_items] = arg;
+    q->n_items++;
+}
+
+void*
+fulfill(Defer_Queue *q, void* return_value)
+{
+    for (int i = q->n_items - 1; i > 0; i--) {
+        (q->func_arr[i])(q->arg_arr[i]);
+    }
+
+    return return_value;
+}
+
 // TODO: make write_response work with poll() loop so that it can resume sending where it left off.
 // TODO: clean up the gotos
 // Return 1 if done writing completely.
-// Return 0 if an incomplete read happened.
+// Return 0 if an incomplete write happened.
 // Return -1 on fatal error or max retry reached.
 int
 write_response(Server *serv, Connection *conn)
 {
+    Defer_Queue dq = NULL_DEFER_QUEUE;
+    File file;
     int result = -1;
 
     char *path = resolve_path(serv->serve_path, conn->req->path);
+    if (!path) return -1;
+    defer(&dq, free, path);
 
-    /* printf("serve path: %s\n", serv->serve_path); */
-    /* printf("request path: %s\n", conn->req->path); */
-    /* printf("resolved path: %s\n", path); */
+    printf("serve path: %s\n", serv->serve_path);
+    printf("request path: %s\n", conn->req->path);
+    printf("resolved path: %s\n", path);
 
-    // TODO: if path is higher than serve_path, return 403
+    conn->res_buf = malloc(sizeof(conn->res_buf));
+    if (!conn->res_buf) return fulfill(&dq, -1);
+    defer(&dq, free, conn->res_buf);
 
-    Buffer res = {
+    *(conn->res_buf) = (Buffer) {
         .data = malloc(RES_BUF_SIZE),
         .n_items = 0,
         .n_alloc = RES_BUF_SIZE,
     };
-    if (!res.data) goto cleanup;
+    if (!conn->res_buf->data) return fulfill(&dq, -1);
+    defer(&dq, free_buf, conn->res_buf);
 
     // Find out if we're listing a dir or serving a file
     char *base_name = get_base_name(path);
-    if (!base_name) goto cleanup;
-    File file;
+    if (!base_name) return fulfill(&dq, -1);
     int read_result = read_file_info(&file, path, base_name);
     free(base_name);
+    defer(&dq, free_file, &file);
 
     // Fatal error
     if (read_result == -2) {
-        if (!buf_append_str(&res, "HTTP/1.1 500\r\n\r\n"))
-            goto cleanup;
-        goto cleanup;
+        buf_append_str(conn->res_buf, "HTTP/1.1 500\r\n\r\n");
+        return fulfill(&dq, -1);
     }
 
     // File not found
     if (read_result == -1) {
-        if (!buf_append_str(&res, "HTTP/1.1 404\r\n\r\n"))
-            goto cleanup;
+        printf("file %s not found\n", path);
+        if (!buf_append_str(conn->res_buf, "HTTP/1.1 404\r\n\r\n"))
+            return fulfill(&dq, -1);
         // TODO: buf_append_http_error_msg(404);
-        if (!buf_append_str(&res, "Error 404: file not found\r\n"))
-            goto cleanup;
+        if (!buf_append_str(conn->res_buf, "Error 404: file not found\r\n"))
+            return fulfill(&dq, -1);
 
-        result = send_buf(conn->fd, res.data, res.n_items);
-        goto cleanup;
+        result = send_buf(conn->fd,
+                          conn->res_buf->data,
+                          conn->res_buf->n_items);
+        return fulfill(&dq, result);
     }
 
-    // Success (so far)
-    if (!buf_append_str(&res, "HTTP/1.1 200\r\n"))
-        goto cleanup;
+    // File found
+    if (!buf_append_str(conn->res_buf, "HTTP/1.1 200\r\n"))
+        return fulfill(&dq, -1);
 
     // We're serving a dirlisting
     if (file.is_dir) {
+        Defer_Queue dqfl = NULL_DEFER_QUEUE;
+
         // Get file list
         File_List *fl = ls(path);
-        if (!fl) goto cleanup;
+        if (!fl) return fulfill(&dq, -1);
+        defer(&dqfl, free_file_list, fl);
+        defer(&dqfl, free, fl);
 
-        if (!buf_append_str(&res, "\r\n"))
-            goto cleanup;
-
-        // Write html into res
-        if (!file_list_to_html(conn->req->path, fl, &res)) {
-            free_file_list(fl);
-            free(fl);
-            goto cleanup;
+        if (!buf_append_str(conn->res_buf, "\r\n")) {
+            fulfill(&dqfl, NULL);
+            return fulfill(&dq, -1);
         }
 
-        if (!buf_append_str(&res, "\r\n"))
-            goto cleanup;
+        // Write html into response buffer
+        if (!file_list_to_html(conn->req->path, fl, conn->res_buf)) {
+            fulfill(&dqfl, NULL);
+            return fulfill(&dq, -1);
+        }
 
-        free_file_list(fl);
-        free(fl);
+        if (!buf_append_str(conn->res_buf, "\r\n")) {
+            fulfill(&dqfl, NULL);
+            return fulfill(&dq, -1);
+        }
+
+        printf("mark\n");
+        fulfill(&dqfl, NULL);
 
         // Send res
-        result = send_buf(conn->fd, res.data, res.n_items);
-        goto cleanup;
+        result = send_buf(conn->fd,
+                          conn->res_buf->data,
+                          conn->res_buf->n_items);
+        return fulfill(&dq, result);
     }
 
     // We're serving a file
     printf("We're serving the file %s\n", file.name);
     if (strstr(file.name, ".html")) {
-        buf_append_str(&res,
+        buf_append_str(conn->res_buf,
                        "Content-Type: text/html; charset=UTF-8\r\n");
     } else if (strstr(file.name, ".jpg")) {
-        buf_append_str(&res, "Content-Type: image/jpeg\r\n");
+        buf_append_str(conn->res_buf, "Content-Type: image/jpeg\r\n");
     }
-    buf_sprintf(&res, "Content-Length: %ld\r\n\r\n", file.size);
+    buf_sprintf(conn->res_buf, "Content-Length: %ld\r\n\r\n", file.size);
     //ascii_dump_buf(stdout, res.data, res.n_items);
 
-    int succ = buf_append_file_contents(&res, &file, path);
+    int succ = buf_append_file_contents(conn->res_buf, &file, path);
     if (succ == -1 || succ == 0) {
         fprintf(stderr,
                 "buf_append_file_contents failed with code %i\n",
                 succ);
-        goto cleanup;
+        return fulfill(&dq, -1);
     }
 
     // Send res
-    result = send_buf(conn->fd, res.data, res.n_items);
+    result = send_buf(conn->fd, conn->res_buf->data, conn->res_buf->n_items);
 
     //dump_data(stdout, res.data, res.n_items, DUMP_WIDTH);
-cleanup:
-    if (path != serv->serve_path)
-        free(path);
-    free_buf(&res);
-    free_file(&file);
 
-    return result;
+    return fulfill(&dq, result);
 }
 
 /*

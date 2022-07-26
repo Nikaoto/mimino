@@ -1,6 +1,6 @@
 # Makefile
 CC := cc
-CWARNS := -Wall -Wextra -Wno-comments -Wno-implicit-fallthrough
+CWARNS := -w -Wno-comments -Wno-implicit-fallthrough
 CFLAGS := -pipe -O $(CWARNS) -g
 FAST_CFLAGS := -pipe -O2 -Wall -Wpedantic -Wextra -g
 LINK := $(CC)

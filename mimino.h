@@ -36,11 +36,10 @@ typedef struct {
     Http_Request *req;
     char req_buf[REQ_BUF_SIZE];
     size_t req_buf_i;           // Points to char up to which data was read
-    char res_buf[RES_BUF_SIZE];
-    size_t res_buf_i;           // Points to char up to which data was sent
-    int status;
     int read_tries_left;        // read_request tries left until force closing
+    Buffer *res_buf;
     int write_tries_left;       // write_response tries left until force closing
+    int status;
 } Connection;
 
 typedef struct {

@@ -18,8 +18,6 @@ print_file_info(FILE *f, File *file)
 }
 
 // Return a newly allocated string of p2 appended to p1.
-// Return p1 if p2 is either "." or "/" or "./" or "/." or "./.".
-// Therefore, the caller must check if returned pointer == p1.
 // Return NULL on error.
 char*
 resolve_path(char *p1, char *p2)
@@ -27,7 +25,7 @@ resolve_path(char *p1, char *p2)
     if (!strcmp(".", p2) || !strcmp("/", p2) ||
         !strcmp("./", p2) || !strcmp("/.", p2) ||
         !strcmp("./.", p2))
-        return p1;
+        return strdup(p1);
 
     // Allocate enough size
     size_t l1 = strlen(p1);
