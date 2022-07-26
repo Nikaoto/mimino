@@ -14,6 +14,9 @@ Http_Response* make_http_response(Server *serv, Http_Request* req);
 void print_http_response(FILE*, Http_Response*);
 void free_http_response(Http_Response*);
 
+long long ll_power(long long a, long long b);
+long long consume_next_num(char **str, char *end);
+
 void buf_encode_url(Buffer *, char *);
 char *decode_url(char *);
 

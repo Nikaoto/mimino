@@ -61,7 +61,10 @@ is_http_end(char *buf, size_t size)
 // Return a ^ b.
 // Expects b >= 0.
 long long
-ll_power(long long a, long long b) {
+ll_power(long long a, long long b)
+{
+    if (a == 0) return 0;
+    if (a == 1) return 1;
     if (b == 0) return 1;
 
     long long ret = a;
@@ -81,13 +84,13 @@ long long
 consume_next_num(char **str, char *end)
 {
     long long num = 0;
-    int num_len = 0;
-    while (is_digit(*(*str + num_len)) && (*str + num_len) != end) {
+    int num_len = 1;
+    while (is_digit(*(*str + num_len)) && (*str + num_len) <= end) {
         num_len++;
     }
 
     for (int i = 0; i < num_len; i++) {
-        n = *(*str + i) - '0';
+        long long n = *(*str + i) - '0';
         long long increment = ((long long) n) * ll_power(10, num_len - i - 1);
         num += increment;
     }
