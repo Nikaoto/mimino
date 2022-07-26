@@ -38,5 +38,11 @@ addrinfo: addrinfo/addrinfo.c
 
 clean:
 	rm -rf $(OBJS_DIR)
+	rm -rf tests/run_tests
 
-.PHONY: debug all clean recvserver addrinfo
+test: $(OBJS)
+	$(CC) $(CFLAGS) $(OBJS) -I./ tests/test_main.c -o tests/run_tests
+	@echo
+	./tests/run_tests
+
+.PHONY: debug all clean test recvserver addrinfo

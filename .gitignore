@@ -4,3 +4,4 @@ recvserver/recvserver
 mimino
 *.o
 results/
+tests/run_tests
