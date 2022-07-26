@@ -11,7 +11,8 @@
 - security
   - timeout for lingering connections
   - something about changing the GID and UID of the UNIX-domain socket file
-  - restrict linking to directories outside serve_dir (unless `serv.conf.unsafe` is set)
+  - restrict linking to directories outside serve_dir (unless `serv.conf.unsafe`
+    is set)
 
 - logging / debugging
   - log the server configuration when starting up
@@ -38,8 +39,11 @@
   - caching with infinite (?) TTL
   - use readdir() instead of scandir() for faster dir scanning
     (~/src/darkhttpd/darkhttpd.c:1830:0)
+  - Try on improvements from GoodSocket by jart:
+  https://github.com/jart/cosmopolitan/blob/master/libc/sock/goodsocket.c and
+  measure actual performance increase
 
-- Skim RFCs
+- Reading
   - [HTTP/1.1 - Syntax & Routing (main)](https://datatracker.ietf.org/doc/html/rfc7230)
   - [HTTP/1.1 - Status Codes, Methods & Headers ](https://datatracker.ietf.org/doc/html/rfc7231)
   - [HTTP/1.1 - Authentication](https://datatracker.ietf.org/doc/html/rfc7235)
@@ -51,19 +55,15 @@
   - [old HTTP 1.1 RFC](https://datatracker.ietf.org/doc/html/rfc2616)
   - [other internet standard RFCs](https://www.rfc-editor.org/search/rfc_search_detail.php?sortkey=Number&sorting=DESC&page=All&pubstatus%5B%5D=Standards%20Track&std_trk=Internet%20Standard)
   - [Roy Fieldings REST dissertation](https://www.ics.uci.edu/~fielding/pubs/dissertation/top.htm)
-- Try on improvements from GoodSocket by jart:
-  https://github.com/jart/cosmopolitan/blob/master/libc/sock/goodsocket.c and
-  measure actual performance increase
-- read https://developer.mozilla.org/en-US/docs/Web/HTTP
-- read https://unix4lyfe.org/darkhttpd/
+  - [darkhttpd](https://unix4lyfe.org/darkhttpd/)
 
 ## Pre-release checklist
 - Run performance test with https://github.com/wg/wrk
 - Write mimino-forwarder
-- remove unnecessary logging & printfs
-- test download with 9GB file
-- test paused download with 9GB file
-- test video streaming
+- Remove unnecessary logging & printfs
+- Test download with 9GB file
+- Test paused download with 9GB file
+- Test video streaming
 
 ## Ideas
 
