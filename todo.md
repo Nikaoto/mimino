@@ -1,5 +1,6 @@
 ## TODO
-- serving empty files hangs
+- decode req->path url and pass that to resolve_path
+- encode file names and use that as href for dirlisting(? check in rfc if necessary)
 - support utf8 filenames in dirlisting (check if bits for utf8 set and render them as such)
 - use readdir() instead of scandir() ~/src/darkhttpd/darkhttpd.c:1830:0
 - timeout for lingering connections
@@ -10,6 +11,7 @@
 - allow linking to files outside serve_dir
 - serve index.html if present
 - url encoding / decoding
+- log the server configuration when starting up
 - add flag -p for port
 - add flag -c for chroot to serve_dir at init
 - add flag -e to search for standard xxx.html error files in case of errors (404.html, 500.html ...)
