@@ -50,6 +50,8 @@ print_server_config(Server_Config *conf)
     printf("  .index = \"%s\",\n", conf->index);
     printf("  .suffix = \"%s\",\n", conf->suffix);
     printf("  .chroot_dir = \"%s\",\n", conf->chroot_dir);
+    printf("  .timeout_secs = \"%d\",\n", conf->timeout_secs);
+    printf("  .poll_interval_ms = \"%d\",\n", conf->poll_interval_ms);
     printf("}\n");
 }
 
@@ -372,6 +374,9 @@ main(int argc, char **argv)
             (argdefs[7].value ? argdefs[7].value : "index.html")
             : NULL,
         .serve_path = argdefs[8].value ? argdefs[8].value : "./",
+
+        .timeout_secs     = 20,
+        .poll_interval_ms = 1000,
     };
 
     // Set chroot directory
@@ -421,7 +426,10 @@ main(int argc, char **argv)
     // Main loop
     while (1) {
         serv.time_now = time(NULL);
-        int nfds = poll(serv.queue.pollfds, serv.queue.pollfd_count, POLL_TIMEOUT_MS);
+        int nfds = poll(
+            serv.queue.pollfds,
+            serv.queue.pollfd_count,
+            serv.conf.poll_interval_ms);
 
         if (nfds == -1) {
             perror("poll() returned -1");
@@ -481,7 +489,7 @@ main(int argc, char **argv)
 
             // Drop connection if it timed out
             if (conn->status != CONN_STATUS_CLOSED &&
-                conn->last_active + TIMEOUT_SECS <= serv.time_now) {
+                conn->last_active + serv.conf.timeout_secs <= serv.time_now) {
                 fprintf(stdout, "Connection %ld timed out\n", fd_i);
                 free_connection_parts(conn);
                 printf("serv.queue.pollfd_count: %ld\n", serv.queue.pollfd_count);

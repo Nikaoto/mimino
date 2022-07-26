@@ -380,7 +380,12 @@ make_http_response(Server *serv, Http_Request *req)
     // File not found
     if (read_result == -1) {
         printf("file %s not found\n", real_path);
-        buf_append_str(res->buf, "HTTP/1.1 404\r\n\r\n");
+        buf_append_str(res->buf, "HTTP/1.1 404\r\n");
+        buf_sprintf(
+            res->buf,
+            "Keep-Alive: timeout=%s\r\n",
+            serv->conf.timeout_secs);
+        buf_append_str(res->buf, "\r\n");
         // TODO: buf_append_http_error_msg(404);
         buf_append_str(res->buf, "Error 404: file not found\r\n");
         return fulfill(&dq, res);

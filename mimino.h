@@ -20,8 +20,6 @@
 #define CONN_STATUS_TIMED_OUT 4
 #define CONN_STATUS_CLOSED    5
 
-#define TIMEOUT_SECS           20
-#define POLL_TIMEOUT_MS        1000
 #define MAX_REQUEST_SIZE       1<<12
 #define RESPONSE_BUF_INIT_SIZE 1<<12
 
@@ -70,6 +68,8 @@ typedef struct {
     int unsafe;
     int chroot;
     int serve_error_files;
+    int timeout_secs;
+    int poll_interval_ms;
     char *serve_path;
     char *port;
     char *index;  // TODO: replace with array of strings 'index_list'
