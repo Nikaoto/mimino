@@ -44,7 +44,6 @@ is_http_end(char *buf, size_t size)
 }
 
 // Parses buffer and fills out Http_Request fields
-// Returns 1 if request has en
 Http_Request*
 parse_http_request(Http_Request *req)
 {
@@ -298,14 +297,16 @@ make_http_response(Server *serv, Http_Request *req)
     res->error = NULL;
 
     char *clean_http_path = cleanup_path(req->path);
-    defer(&dq, free, clean_http_path);
+    char *decoded_http_path = decode_url(clean_http_path);
+    free(clean_http_path);
+    defer(&dq, free, decoded_http_path);
 
-    char *path = resolve_path(serv->serve_path, clean_http_path);
+    char *path = resolve_path(serv->serve_path, decoded_http_path);
     defer(&dq, free, path);
 
     /* printf("serve path: %s\n", serv->serve_path); */
     /* printf("request path: %s\n", req->path); */
-    /* printf("clean request path: %s\n", clean_http_path); */
+    /* printf("decoded request path: %s\n", decoded_http_path); */
     /* printf("resolved path: %s\n", path); */
 
     // Find out if we're listing a dir or serving a file
@@ -332,12 +333,12 @@ make_http_response(Server *serv, Http_Request *req)
     // We're serving a dirlisting
     if (file.is_dir) {
         // Forward to path with trailing slash if it's missing
-        if (clean_http_path[strlen(clean_http_path) - 1] != '/') {
+        if (decoded_http_path[strlen(decoded_http_path) - 1] != '/') {
             buf_sprintf(
                 res->buf,
                 "HTTP/1.1 301\r\n"
                 "Location:%s/\r\n\r\n",
-                clean_http_path);
+                decoded_http_path);
             return fulfill(&dq, res);
         }
 
@@ -357,7 +358,7 @@ make_http_response(Server *serv, Http_Request *req)
         buf_append_str(
             res->buf,
             "Content-Type: text/html; charset=UTF-8\r\n\r\n");
-        file_list_to_html(res->buf, clean_http_path, fl);
+        file_list_to_html(res->buf, decoded_http_path, fl);
         buf_append_str(res->buf, "\r\n");
 
         fulfill(&dqfl, NULL);
@@ -381,6 +382,10 @@ make_http_response(Server *serv, Http_Request *req)
         buf_append_str(
             res->buf,
             "Content-Type: application/pdf\r\n");
+    } else if (strstr(file.name, ".css")) {
+        buf_append_str(
+            res->buf,
+            "Content-Type: text/css\r\n");
     } else {
         buf_append_str(
             res->buf,
@@ -455,3 +460,72 @@ free_http_response(Http_Response *res)
     res = NULL;
 }
 
+// Encode url and copy it into buf
+void
+buf_encode_url(Buffer *buf, char *url)
+{
+    char hex[] = "0123456789ABCDEF";
+
+    for (; *url != '\0'; url++) {
+        if (needs_encoding((unsigned char)*url)) {
+            buf_push(buf, '%');
+            buf_push(buf, hex[(*url >> 4) & 0xF]);
+            buf_push(buf, hex[ *url       & 0xF]);
+        } else {
+            buf_push(buf, *url);
+        }
+    }
+}
+
+char*
+decode_url(char *url)
+{
+    size_t len = strlen(url);
+    char *ret = xmalloc(len + 1);
+    char *p = ret;
+
+    for (size_t i = 0; i < len; i++) {
+        if (url[i] == '%') {
+            if (i + 1 < len && url[i+1] == '%') {
+                *p++ = '%';
+                i++;
+                continue;
+            }
+
+            if (i + 2 < len && is_hex(url[i+1]) && is_hex(url[i+2])) {
+                *p = 0;
+
+                // Frst hex digit
+                if (url[i+1] >= 'A' && url[i+1] <= 'F') {
+                    *p = 0x0A + (url[i+1] - 'A');
+                } else if (url[i+1] >= 'a' && url[i+1] <= 'f') {
+                    *p = 0x0A + (url[i+1] - 'a');
+                } else if (url[i+1] >= '0' && url[i+1] <= '9') {
+                    *p = url[i+1] - '0';
+                }
+
+                *p = *p << 4;
+
+                // Second hex digit
+                if (url[i+2] >= 'A' && url[i+2] <= 'F') {
+                    *p |= (0x0A + (url[i+2] - 'A'));
+                } else if (url[i+2] >= 'a' && url[i+2] <= 'f') {
+                    *p |= (0x0A + (url[i+2] - 'a'));
+                } else if (url[i+2] >= '0' && url[i+2] <= '9') {
+                    *p |= url[i+2] - '0';
+                }
+
+                p++;
+                i += 2;
+                continue;
+            }
+            
+        }
+
+        *p++ = url[i];   
+    }
+
+    *p = '\0';
+
+    return ret;
+}

@@ -106,23 +106,6 @@ buf_sprintf(Buffer *buf, char *fmt, ...)
     return len - 1;
 }
 
-// Encode url and copy it into buf
-void
-buf_encode_url(Buffer *buf, char *url)
-{
-    char hex[] = "0123456789ABCDEF";
-
-    for (; *url != '\0'; url++) {
-        if (needs_encoding((unsigned char)*url)) {
-            buf_push(buf, '%');
-            buf_push(buf, hex[(*url >> 4) & 0xF]);
-            buf_push(buf, hex[ *url       & 0xF]);
-        } else {
-            buf_push(buf, *url);
-        }
-    }
-}
-
 // Return -1 on fopen error
 // Return 0 on read error
 // Return 1 on success
@@ -158,4 +141,25 @@ buf_append_file_contents(Buffer *buf, File *f, char *path)
 
     fclose(fp);
     return 1;
+}
+
+void
+print_buf_ascii(FILE *stream, Buffer *buf)
+{
+    for (size_t i = 0; i < buf->n_items; i++) {
+        switch (buf->data[i]) {
+        case '\n':
+            fprintf(stream, "\\n\n");
+            break;
+        case '\t':
+            fprintf(stream, "\\t");
+            break;
+        case '\r':
+            fprintf(stream, "\\r");
+            break;
+        default:
+            putc(buf->data[i], stream);
+            break;
+        }
+    }
 }

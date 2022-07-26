@@ -1,8 +1,5 @@
 ## TODO
 
-- url encoding/decoding
-  - decode req->path url and pass that to resolve_path
-
 - faster dir scanning (?)
   - use readdir() instead of scandir() ~/src/darkhttpd/darkhttpd.c:1830:0
   

@@ -22,6 +22,12 @@ is_alnum(char c)
     return is_digit(c) || is_alpha(c);
 }
 
+int
+is_hex(char c)
+{
+    return is_digit(c) || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f');
+}
+
 // https://tools.ietf.org/html/rfc3986#section-2.3
 int
 needs_encoding(unsigned char c)

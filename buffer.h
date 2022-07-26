@@ -14,6 +14,7 @@ typedef struct {
 } Buffer;
 
 Buffer* new_buf(size_t data_size);
+void print_buf_ascii(FILE *stream, Buffer *buf);
 void free_buf(Buffer*);
 void free_buf_parts(Buffer*);
 
@@ -23,6 +24,5 @@ void buf_append(Buffer *b, char *src, size_t n);
 void buf_append_str(Buffer *b, char *str);
 int buf_sprintf(Buffer *buf, char *fmt, ...);
 int buf_append_file_contents(Buffer *buf, File *f, char *path);
-void buf_encode_url(Buffer *b, char *url);
 
 #endif

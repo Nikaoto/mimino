@@ -443,13 +443,16 @@ main(int argc, char **argv)
                 } else if (status == 1) {
                     // Reading done, parse request
                     parse_http_request(conn->req);
-                    //print_http_request(stdout, req);
+                    //print_http_request(stderr, req);
 
                     // Parse error
                     if (conn->req->error) {
                         fprintf(stdout,
                                 "Parse error: %s\n",
                                 conn->req->error);
+                        fprintf(stderr,
+                                "Request buffer dump:\n");
+                        print_buf_ascii(stderr, conn->req->buf);
 
                         // Close the connection if we didn't manage
                         // to parse the essential headers
@@ -643,7 +646,7 @@ hex_dump_line(FILE *stream, char *buf, size_t buf_size, size_t width)
     // Hexdump
     fprintf(stream, " | ");
     for (size_t i = 0; i < buf_size; i++) {
-        fprintf(stream, "%02X ", buf[i]);
+        fprintf(stream, "%02X ", (unsigned char) buf[i]);
     }
     putc('\n', stream);
 }
