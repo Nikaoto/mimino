@@ -21,7 +21,7 @@ defer(Defer_Queue *q, void (func)(void*), void *arg)
 void*
 fulfill(Defer_Queue *q, void* return_value)
 {
-    for (int i = q->n_items - 1; i > 0; i--) {
+    for (int i = q->n_items - 1; i >= 0; i--) {
         (q->func_arr[i])(q->arg_arr[i]);
     }
 
