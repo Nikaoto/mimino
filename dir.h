@@ -27,6 +27,7 @@ typedef struct {
 
 File_List* ls(char *dir);
 void free_file(File *f);
+void free_file_parts(File *f);
 void free_file_list(File_List *fl);
 char* get_base_name(char *path);
 char* resolve_path(char *p1, char *p2);

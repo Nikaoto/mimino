@@ -103,7 +103,6 @@ get_human_file_size(off_t size)
 {
     #define LEN 22
     char *str = xmalloc(LEN);
-    if (!str) return NULL;
 
     if (size < KB_SIZE) {
         snprintf(str, LEN, "%ld", size);
@@ -391,7 +390,7 @@ ls(char *path)
 }
 
 void
-free_file(File *f)
+free_file_parts(File *f)
 {
     if (f->is_null)
         return;
@@ -399,10 +398,18 @@ free_file(File *f)
 }
 
 void
+free_file(File *f)
+{
+    free_file_parts(f);
+    free(f);
+}
+
+void
 free_file_list(File_List *fl)
 {
     for (size_t i = 0; i < fl->len; i++) {
-        free_file(fl->files + i);
+        free_file_parts(fl->files + i);
     }
     free(fl->files);
+    free(fl);
 }

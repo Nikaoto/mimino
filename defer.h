@@ -38,4 +38,4 @@ fulfill(Defer_Queue *q, void* return_value)
     return return_value;
 }
 
-#endif _MIMINO_DEFER_H
+#endif // _MIMINO_DEFER_H

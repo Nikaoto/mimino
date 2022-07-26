@@ -31,164 +31,23 @@ void hex_dump_line(FILE *stream, char *buf, size_t buf_size, size_t width);
 void dump_data(FILE *stream, char *buf, size_t bufsize, size_t nbytes_recvd);
 void ascii_dump_buf(FILE *stream, char *buf, size_t buf_size);
 
-int
-buf_grow(Buffer *b, size_t min_growth)
-{
-    size_t new_size = b->n_alloc + MAX(min_growth, BUFFER_GROWTH);
-    char *ptr = xrealloc(b->data, new_size);
-    b->n_alloc = new_size;
-    b->data = ptr;
-    return 1;
-}
-
-// Append n bytes from src to buffer's data, growing it if necessary.
-// Return 0 on fail.
-// Return 1 on success.
-int
-buf_append(Buffer *b, char *src, size_t n)
-{
-    if (n == 0) return 1;
-
-    if (b->n_items + n > b->n_alloc) {
-        if (!buf_grow(b, n)) return 0;
-    }
-
-    memcpy(b->data + b->n_items, src, n);
-    b->n_items += n;
-    return 1;
-}
-
-// Push one byte into buffer's data, growing it if necessary.
-// Return 0 on fail.
-// Return 1 on success.
-int
-buf_push(Buffer *b, char c)
-{
-    if (b->n_items + 1 > b->n_alloc) {
-        if (!buf_grow(b, 1)) return 0;
-    }
-    b->data[b->n_items] = c;
-    b->n_items++;
-    return 1;
-}
-
-// Does not copy the null terminator
-int
-buf_append_str(Buffer *b, char *src)
-{
-    return buf_append(b, src, strlen(src));
-}
-
-int
-buf_append_href(Buffer *buf, File *f, char *req_path)
-{
-    int succ = 1;
-
-    // dirname
-    succ &= buf_append_str(buf, req_path);
-    if (req_path[strlen(req_path) - 1] != '/')
-        succ &= buf_push(buf, '/');
-
-    // basename
-    succ &= buf_append_str(buf, f->name);
-
-    // trailing '/' if given file is a directory
-    if (f->is_dir) {
-        succ &= buf_push(buf, '/');
-    }
-
-    return succ;
-}
-
-// Does not copy the null terminator
-int
-buf_sprintf(Buffer *buf, char *fmt, ...)
-{
-    va_list fmtargs;
-    size_t len;
-
-    // Determine formatted length
-    va_start(fmtargs, fmt);
-    len = vsnprintf(NULL, 0, fmt, fmtargs);
-    va_end(fmtargs);
-    len++;
-
-    // Grow buffer if necessary
-    if (buf->n_items + len > buf->n_alloc)
-        buf_grow(buf, len);
-
-    va_start(fmtargs, fmt);
-    vsnprintf(buf->data + buf->n_items, len, fmt, fmtargs);
-    va_end(fmtargs);
-
-    // Exclude the null terminator at the end
-    buf->n_items += len - 1;
-
-    return 1;
-}
-
-// Return -1 on fopen error
-// Return 0 on read error
-// Return 1 on success
-int
-buf_append_file_contents(Buffer *buf, File *f, char *path)
-{
-    if (buf->n_items + f->size > buf->n_alloc) {
-        buf_grow(buf, f->size);
-    }
-
-    FILE *fp = fopen(path, "r");
-    if (!fp) {
-        perror("fopen()");
-        return -1;
-    }
-
-    while (1) {
-        size_t bytes_read = fread(buf->data + buf->n_items, 1, f->size, fp);
-        buf->n_items += bytes_read;
-        if (bytes_read < (size_t) f->size) {
-            if (ferror(fp)) {
-                fprintf(stdout, "Error when freading() file %s\n", path);
-                fclose(fp);
-                return 0;
-            }
-            // EOF
-            fclose(fp);
-            return 1;
-        }
-    }
-
-    fclose(fp);
-    return 1;
-}
-
-// Free all parts of a Buffer
-void
-free_buf(Buffer *b)
-{
-    free(b->data);
-}
-
-/* NOTE: this is a stub while conn is static and has static buffers */
 void
 free_connection(Connection *conn)
 {
     free(conn->req);
-    free(conn->res_buf);
-    return;
-    free(conn->req_buf);
+    free_http_response(conn->res);
     free(conn);
 }
 
 inline Connection
-create_connection(int fd, struct pollfd *pfd)
+new_connection(int fd, struct pollfd *pfd)
 {
     return (Connection) {
         .fd = fd,
         .pollfd = pfd,
         .status = CONN_STATUS_READING,
         .req_buf_i = 0,
-        .res_buf = NULL,
+        .res = NULL,
         .read_tries_left = 5,
         .write_tries_left = 5,
     };
@@ -351,62 +210,6 @@ read_request(Connection *conn)
     return 0;
 }
 
-// req_path is the path inside the HTTP request
-int
-file_list_to_html(char *req_path, File_List *fl, Buffer *buf)
-{
-    int succ = buf_append_str(
-        buf,
-        "<!DOCTYPE html><html>"
-        "<head><style>"
-        "* { font-family: monospace; }\n"
-        "table { border: none; margin: 1rem; }\n"
-        "td { padding-right: 2rem; }\n"
-        ".red { color: crimson; }\n"
-        "</style></head>"
-        "<body><table>\n");
-    if (!succ)
-        return 0;
-
-    for (size_t i = 0; i < fl->len; i++) {
-        File *f = fl->files + i;
-
-        // Write file name
-        succ &= buf_append_str(buf, "<tr><td><a href=\"");
-        succ &= buf_append_href(buf, f, req_path);
-        succ &= buf_push(buf, '"');
-        if (f->is_link && f->is_broken_link)
-            succ &= buf_append_str(buf, " class=\"red\"");
-        succ &= buf_push(buf, '>');
-        succ &= buf_append_str(buf, f->name);
-        succ &= buf_append_str(buf, get_file_type_suffix(f));
-
-        // Write file size
-        succ &= buf_append_str(buf, "</a></td><td>");
-        if (!f->is_dir) {
-            char *tmp = get_human_file_size(f->size);
-            succ &= (tmp != NULL);
-            succ &= buf_append_str(buf, tmp);
-            free(tmp);
-        }
-        succ &= buf_append_str(buf, "</td><td>\n");
-
-        // Write file permissions
-        char *tmp = get_human_file_perms(f);
-        succ &= (tmp != NULL);
-        succ &= buf_append_str(buf, tmp);
-        free(tmp);
-
-        if (!succ)
-            return 0;
-    }
-
-    if (!buf_append_str(buf, "</table></body></html>\r\n"))
-        return 0;
-
-    return succ;
-}
-
 // TODO: make write_response work with poll() loop so that it can resume sending where it left off.
 // Return 1 if done writing completely.
 // Return 0 if an incomplete write happened.
@@ -414,119 +217,13 @@ file_list_to_html(char *req_path, File_List *fl, Buffer *buf)
 int
 write_response(Server *serv, Connection *conn)
 {
-    Defer_Queue dq = NULL_DEFER_QUEUE;
-    File file;
-    int result = -1;
-
-    char *path = resolve_path(serv->serve_path, conn->req->path);
-    defer(&dq, free, path);
-
-    /* printf("serve path: %s\n", serv->serve_path); */
-    /* printf("request path: %s\n", conn->req->path); */
-    /* printf("resolved path: %s\n", path); */
-
-    conn->res_buf = xmalloc(sizeof(conn->res_buf));
-    defer(&dq, free, conn->res_buf);
-
-    *(conn->res_buf) = (Buffer) {
-        .data = xmalloc(RES_BUF_SIZE),
-        .n_items = 0,
-        .n_alloc = RES_BUF_SIZE,
-    };
-    defer(&dq, free_buf, conn->res_buf);
-
-    // Find out if we're listing a dir or serving a file
-    char *base_name = get_base_name(path);
-    if (!base_name) return fulfill(&dq, -1);
-    int read_result = read_file_info(&file, path, base_name);
-    free(base_name);
-    defer(&dq, free_file, &file);
-
-    // Fatal error
-    if (read_result == -2) {
-        buf_append_str(conn->res_buf, "HTTP/1.1 500\r\n\r\n");
-        return fulfill(&dq, -1);
-    }
-
-    // File not found
-    if (read_result == -1) {
-        printf("file %s not found\n", path);
-        if (!buf_append_str(conn->res_buf, "HTTP/1.1 404\r\n\r\n"))
-            return fulfill(&dq, -1);
-        // TODO: buf_append_http_error_msg(404);
-        if (!buf_append_str(conn->res_buf, "Error 404: file not found\r\n"))
-            return fulfill(&dq, -1);
-
-        result = send_buf(conn->fd,
-                          conn->res_buf->data,
-                          conn->res_buf->n_items);
-        return fulfill(&dq, result);
-    }
-
-    // File found
-    if (!buf_append_str(conn->res_buf, "HTTP/1.1 200\r\n"))
-        return fulfill(&dq, -1);
-
-    // We're serving a dirlisting
-    if (file.is_dir) {
-        Defer_Queue dqfl = NULL_DEFER_QUEUE;
-
-        // Get file list
-        File_List *fl = ls(path);
-        if (!fl) return fulfill(&dq, -1);
-        defer(&dqfl, free_file_list, fl);
-        defer(&dqfl, free, fl);
-
-        if (!buf_append_str(conn->res_buf, "\r\n")) {
-            fulfill(&dqfl, NULL);
-            return fulfill(&dq, -1);
-        }
-
-        // Write html into response buffer
-        if (!file_list_to_html(conn->req->path, fl, conn->res_buf)) {
-            fulfill(&dqfl, NULL);
-            return fulfill(&dq, -1);
-        }
-
-        if (!buf_append_str(conn->res_buf, "\r\n")) {
-            fulfill(&dqfl, NULL);
-            return fulfill(&dq, -1);
-        }
-
-        fulfill(&dqfl, NULL);
-
-        // Send res
-        result = send_buf(conn->fd,
-                          conn->res_buf->data,
-                          conn->res_buf->n_items);
-        return fulfill(&dq, result);
-    }
-
-    // We're serving a file
-    // printf("We're serving the file %s\n", file.name);
-    if (strstr(file.name, ".html")) {
-        buf_append_str(conn->res_buf,
-                       "Content-Type: text/html; charset=UTF-8\r\n");
-    } else if (strstr(file.name, ".jpg")) {
-        buf_append_str(conn->res_buf, "Content-Type: image/jpeg\r\n");
-    }
-    buf_sprintf(conn->res_buf, "Content-Length: %ld\r\n\r\n", file.size);
-    //ascii_dump_buf(stdout, res.data, res.n_items);
-
-    int succ = buf_append_file_contents(conn->res_buf, &file, path);
-    if (succ == -1 || succ == 0) {
-        fprintf(stderr,
-                "buf_append_file_contents failed with code %i\n",
-                succ);
-        return fulfill(&dq, -1);
-    }
-
-    // Send res
-    result = send_buf(conn->fd, conn->res_buf->data, conn->res_buf->n_items);
-
+    // TODO: make sure not to replicate work on retries
+    int result = send_buf(conn->fd,
+                          conn->res->buf->data,
+                          conn->res->buf->n_items);
     //dump_data(stdout, res.data, res.n_items, DUMP_WIDTH);
 
-    return fulfill(&dq, result);
+    return result;
 }
 
 /*
@@ -610,8 +307,8 @@ main(int argc, char **argv)
     };
     poll_queue.pollfd_count = 1;
     // NOTE: This connection won't be used; it's the listen socket
-    poll_queue.conns[0] = create_connection(listen_sock,
-                                            &poll_queue.pollfds[0]);
+    poll_queue.conns[0] = new_connection(listen_sock,
+                                         &poll_queue.pollfds[0]);
 
     // Main loop
     while (1) {
@@ -647,7 +344,7 @@ main(int argc, char **argv)
                     .revents = 0,
                 };
                 poll_queue.conns[i] =
-                    create_connection(newsock, &poll_queue.pollfds[i]);
+                    new_connection(newsock, &poll_queue.pollfds[i]);
 
                 // Restart loop to prioritize new connections
                 continue;
@@ -687,11 +384,16 @@ main(int argc, char **argv)
                 break;
             case CONN_STATUS_WRITING:
                 if (conn->pollfd->revents & POLLOUT) {
+                    if (!conn->res) {
+                        conn->res = construct_http_response(serv.serve_path, conn->req);
+                        print_http_response(stdout, conn->res);
+                    }
+
                     int status = write_response(&serv, conn);
                     if (status == 1) {
                         // Close when done.
                         // Even HTTP errors like 5xx or 4xx go here.
-                        free_http_request(conn->req);
+                        free_connection(conn);
                         close_connection(&poll_queue, fd_i);
                     } else if (status == -1) {
                         // Fatal error encountered and can't send data.
@@ -701,55 +403,21 @@ main(int argc, char **argv)
                             fprintf(stdout,
                                     "Error when writing response: %s\n",
                                     conn->req->error);
-                            free_http_request(conn->req);
+                            free_connection(conn);
                             close_connection(&poll_queue, fd_i);
                         }
                     }
                 }
                 break;
             case CONN_STATUS_WAITING:
-                fprintf(stdout, "CONN_STATUS_WAITING not implemented\n");
+                fprintf(stderr, "CONN_STATUS_WAITING not implemented\n");
                 break;
             case CONN_STATUS_CLOSED:
+                fprintf(stderr, "WARN: connection not closed\n");
                 close_connection(&poll_queue, fd_i);
                 break;
             }
         }
-
-        /*char file_buf[16];
-        size_t file_buf_len = sizeof(file_buf) * sizeof(char);
-
-        // Open file
-        FILE *file_handle = fopen(path, "r");
-        if (file_handle == NULL) {
-            perror("fopen()");
-            goto close;
-        }
-
-        // Start reading the file and sending it.
-        // This works without loading the entire file into memory.
-        while (1) {
-            size_t bytes_read = fread(file_buf, 1, file_buf_len, file_handle);
-            if (bytes_read == 0) {
-                if (ferror(file_handle)) {
-                    fprintf(stdout, "Error when fread()ing file %s\n", path);
-                }
-                break;
-            }
-
-            int succ = send_buf(newsock, file_buf, bytes_read);
-            if (!succ) {
-                goto close;
-            }
-
-            if (bytes_read < file_buf_len) {
-                // fread() will return 0, so if we break here, we avoid calling it
-                break;
-            }
-        };
-
-        fclose(file_handle);
-        fprintf(stdout, "Finished fread()ing\n"); */
     }
 
     return 0;

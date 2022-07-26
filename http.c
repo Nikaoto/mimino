@@ -2,8 +2,11 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "http.h"
+#include "dir.h"
 #include "ascii.h"
 #include "xmalloc.h"
+#include "buffer.h"
+#include "defer.h"
 
 inline int
 is_valid_http_path_char(char c)
@@ -22,9 +25,9 @@ can_handle_http_ver(char *ver)
 
 // Parses string buf into a request struct
 Http_Request*
-parse_http_request(const char *buf)
+parse_http_request(char *buf)
 {
-    const char *p = buf;
+    char *p = buf;
     Http_Request *req = xmalloc(sizeof(Http_Request));
     memset(req, 0, sizeof(*req));
 
@@ -101,9 +104,9 @@ parse_http_request(const char *buf)
 
     // Parse headers
     while (1) {
-        const char *hn; // header name
+        char *hn; // header name
         //size_t hn_len;
-        const char *hv; // header value
+        char *hv; // header value
         size_t hv_len;
 
         // Final \r\n
@@ -197,4 +200,172 @@ print_http_request(FILE *f, Http_Request *req)
     fprintf(f, "  .accept = %s,\n", req->accept);
     fprintf(f, "  .error = %s,\n", req->error);
     fprintf(f, "}\n");
+}
+
+// req_path is the path inside the HTTP request
+void
+file_list_to_html(Buffer *buf, char *req_path, File_List *fl)
+{
+    buf_append_str(
+        buf,
+        "<!DOCTYPE html><html>"
+        "<head><style>"
+        "* { font-family: monospace; }\n"
+        "table { border: none; margin: 1rem; }\n"
+        "td { padding-right: 2rem; }\n"
+        ".red { color: crimson; }\n"
+        "</style></head>"
+        "<body><table>\n");
+
+    for (size_t i = 0; i < fl->len; i++) {
+        File *f = fl->files + i;
+
+        // Write file name
+        buf_append_str(buf, "<tr><td><a href=\"");
+        buf_append_href(buf, f, req_path);
+        buf_push(buf, '"');
+        if (f->is_link && f->is_broken_link)
+            buf_append_str(buf, " class=\"red\"");
+        buf_push(buf, '>');
+        buf_append_str(buf, f->name);
+        buf_append_str(buf, get_file_type_suffix(f));
+
+        // Write file size
+        buf_append_str(buf, "</a></td><td>");
+        if (!f->is_dir) {
+            char *tmp = get_human_file_size(f->size);
+            buf_append_str(buf, tmp);
+            free(tmp);
+        }
+        buf_append_str(buf, "</td><td>\n");
+
+        // Write file permissions
+        char *tmp = get_human_file_perms(f);
+        buf_append_str(buf, tmp);
+        free(tmp);
+    }
+
+    buf_append_str(buf, "</table></body></html>\r\n");
+}
+
+Http_Response*
+construct_http_response(char *serve_path, Http_Request *req)
+{
+    Defer_Queue dq = NULL_DEFER_QUEUE;
+    File file;
+
+    Http_Response *res = xmalloc(sizeof(Http_Response));
+    res->buf = new_buf(RES_BUF_SIZE);
+    res->error = NULL;
+
+    char *path = resolve_path(serve_path, req->path);
+    defer(&dq, free, path);
+
+    printf("serve path: %s\n", serve_path);
+    printf("request path: %s\n", req->path);
+    printf("resolved path: %s\n", path);
+
+    // Find out if we're listing a dir or serving a file
+    char *base_name = get_base_name(path);
+    int read_result = read_file_info(&file, path, base_name);
+    free(base_name);
+    defer(&dq, free_file_parts, &file);
+
+    // File not found
+    if (read_result == -1) {
+        printf("file %s not found\n", path);
+        buf_append_str(res->buf, "HTTP/1.1 404\r\n\r\n");
+        // TODO: buf_append_http_error_msg(404);
+        buf_append_str(res->buf, "Error 404: file not found\r\n");
+        return fulfill(&dq, res);
+    }
+
+    // Fatal error
+    if (read_result == -2) {
+        buf_append_str(res->buf, "HTTP/1.1 500\r\n\r\n");
+        return fulfill(&dq, res);
+    }
+
+    // We're serving a dirlisting
+    if (file.is_dir) {
+        Defer_Queue dqfl = NULL_DEFER_QUEUE;
+
+        // Get file list
+        File_List *fl = ls(path);
+        if (!fl) {
+            // Internal error
+            buf_append_str(res->buf, "HTTP/1.1 500\r\n");
+            return fulfill(&dq, res);
+        }
+        defer(&dqfl, free_file_list, fl);
+
+        // Write html into response buffer
+        buf_append_str(res->buf, "HTTP/1.1 200\r\n\r\n");
+        file_list_to_html(res->buf, req->path, fl);
+        buf_append_str(res->buf, "\r\n");
+
+        fulfill(&dqfl, NULL);
+        return fulfill(&dq, res);
+    }
+
+    // We're serving a single file
+    buf_append_str(res->buf, "HTTP/1.1 200\r\n\r\n");
+    // printf("We're serving the file %s\n", file.name);
+
+    // Write Content-Type header
+    if (strstr(file.name, ".html")) {
+        buf_append_str(
+            res->buf,
+            "Content-Type: text/html; charset=UTF-8\r\n");
+    } else if (strstr(file.name, ".jpg")) {
+        buf_append_str(
+            res->buf,
+            "Content-Type: image/jpeg\r\n");
+    }
+
+    // Write Content-Length header
+    buf_sprintf(res->buf,
+                "Content-Length: %ld\r\n\r\n",
+                file.size);
+    //ascii_dump_buf(stdout, res.data, res.n_items);
+
+    // Write file contents
+    int code = buf_append_file_contents(res->buf, &file, path);
+    if (code == -1 || code == 0) {
+        // TODO: handle this failure better (with a 500 err code).
+        fprintf(stderr,
+                "buf_append_file_contents failed with code %i\n",
+                code);
+        return fulfill(&dq, res);
+    }
+
+    return fulfill(&dq, res);
+}
+
+void print_http_response(FILE *stream, Http_Response *res)
+{
+    for (size_t i = 0; i < res->buf->n_items; i++) {
+        switch (res->buf->data[i]) {
+        case '\n':
+            fprintf(stream, "\\n\n");
+            break;
+        case '\t':
+            fprintf(stream, "\\t");
+            break;
+        case '\r':
+            fprintf(stream, "\\r");
+            break;
+        default:
+            putc(res->buf->data[i], stream);
+            break;
+        }
+    }
+}
+
+void
+free_http_response(Http_Response *res)
+{
+    free_buf(res->buf);
+    // free(res->error);
+    free(res);
 }
