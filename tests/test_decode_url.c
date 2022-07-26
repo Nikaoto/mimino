@@ -18,6 +18,7 @@ test_decode_url()
     // cmpstr to avoid clashing with possible 'strcmp' macro
     #define cmpstr strcmp_free_first
 
+    esma_log_test("decode_url()");
     esma_assert(!cmpstr(decode_url("/file%20space"), "/file space"));
     esma_assert(!cmpstr(decode_url("/file%20with%20spaces/"), "/file with spaces/"));
     esma_assert(!cmpstr(decode_url("%E1%83%A5%E1%83%90%E1%83%A0%E1%83%97%E1%83%A3%E1%83%9A%E1%83%98"), "ქართული"));

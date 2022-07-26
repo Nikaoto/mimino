@@ -4,7 +4,6 @@
 - `ag TODO:`
 - add unit tests
   - for `parse_http_request`
-  - for `buf_encode_url`
   - for `cleanup_path`
   - for `resolve_path`
 

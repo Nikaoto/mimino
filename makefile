@@ -50,6 +50,7 @@ clean:
 test: $(OBJS)
 	@$(CC) $(TEST_CFLAGS) $^ -I./ -o tests/run_tests \
 		tests/test_decode_url.c \
+		tests/test_buf_encode_url.c \
 		tests/test_parse_args.c \
 		tests/test_http_parsers.c \
 		tests/test_main.c
