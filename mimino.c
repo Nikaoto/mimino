@@ -297,7 +297,7 @@ write_body(Connection *conn)
         conn->fd,
         conn->res->body.data +
           (conn->res->range_start + conn->res->body_nbytes_sent),
-        conn->res->range_end - conn->res->body_nbytes_sent);
+        conn->res->range_end + 1 - conn->res->body_nbytes_sent);
 
     // Fatal error, no use retrying
     if (sent == -1) {
@@ -308,8 +308,8 @@ write_body(Connection *conn)
     conn->res->body_nbytes_sent += sent;
 
     // Retry later if not sent fully
-    if (conn->res->range_start + conn->res->body_nbytes_sent <
-        conn->res->range_end) {
+    if (conn->res->range_start + (off_t) conn->res->body_nbytes_sent <
+        conn->res->range_end + 1) {
         if (conn->write_tries_left == 0) {
             conn->res->error = "write_body(): Max write tries reached";
             return W_MAX_TRIES;
