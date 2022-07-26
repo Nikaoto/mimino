@@ -31,8 +31,6 @@
   - Use sendfile() when possible
   - Support HEAD requests(?)
   - support ipv6 (just start listen()ing on one ipv6 socket)
-  - Implement Keep-Alive
-  - Implement Last-Modified
   - add flags mentioned in ./readme.md
 
 - optimizaiton
