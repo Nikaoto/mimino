@@ -1,18 +1,14 @@
 ## TODO
-- think of a way to enable both dirlisting and indexing (maybe `-d`
-  flag to disable dirlistings?)
 
+- `ag TODO:`
 - add unit tests
   - for `parse_http_request`
   - for `buf_encode_url`
   - for `cleanup_path`
   - for `resolve_path`
 
-- bugs
-  - `# define _FILE_OFFSET_BITS 64 /* stat() files bigger than 2GB */`
-
 - security
-  - timeout for lingering connections
+  - time out connections that don't send/receive data for 20 seconds
   - something about changing the GID and UID of the UNIX-domain socket file
   - restrict linking to directories outside serve_dir (unless `serv.conf.unsafe`
     is set)
@@ -31,6 +27,9 @@
   - Use sendfile() when possible
   - support ipv6 (just start listen()ing on one ipv6 socket)
   - add flags mentioned in ./readme.md
+  - think of a way to enable both dirlisting and indexing (maybe `-d` flag to
+  disable dirlistings?)
+
 
 - optimizaiton
   - use hashmap instead of lookup table for mime types
