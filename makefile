@@ -3,7 +3,10 @@ CC := cc
 CWARNS := -Wall -Wpedantic -Wextra -Wno-comments \
 	-Wno-implicit-fallthrough -Wno-int-conversion \
 	-Wno-incompatible-pointer-types
+TEST_CWARNS := -Wall -Wpedantic -Wextra -Wno-comments \
+	-Wno-incompatible-pointer-types
 CFLAGS := $(CWARNS) -g
+TEST_CFLAGS := $(TEST_CWARNS) -g
 FAST_CFLAGS := -O2 -Wall -Wpedantic -Wextra -g
 LINK := $(CC)
 
@@ -28,7 +31,7 @@ $(shell mkdir -p $(OBJS_DIR))
 all: mimino
 
 mimino: $(OBJS) $(OBJS_DIR)/mimino.o
-	$(CC) $(CFLAGS) $(OBJS) $(OBJS_DIR)/mimino.o -o $@
+	$(CC) $(CFLAGS) $^ -o $@
 
 $(OBJS_DIR)/%.o: %.c %.h
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -42,10 +45,13 @@ addrinfo: addrinfo/addrinfo.c
 clean:
 	rm -rf $(OBJS_DIR)
 	rm -rf tests/run_tests
+	rm -rf tests/*.o
 
 test: $(OBJS)
-	$(CC) $(CFLAGS) -Wno-incompatible-pointer-types \
-		$(OBJS) -I./ tests/test_main.c -o tests/run_tests
+	@$(CC) $(TEST_CFLAGS) $^ -I./ -o tests/run_tests \
+		tests/test_decode_url.c \
+		tests/test_parse_args.c \
+		tests/test_main.c
 	@echo
 	./tests/run_tests
 

@@ -1,6 +1,7 @@
 // Unit testing microframework
 
 #ifndef _MIMINO_ESMA_H
+#define _MIMINO_ESMA_H
 
 // VT100 colors
 #define ESMA_C_RESET     "\x1b[0m"
@@ -91,21 +92,19 @@ extern int log_ind;
     test();                                                    \
 } while (0);
 
-void
-esma_report()
-{
-    esma_log("\n");
-    if (tests_failed == 0) {
-        esma_log(ESMA_C_BG_GREEN ESMA_C_FG_BLACK);
-    } else {
-        esma_log(ESMA_C_BG_RED ESMA_C_FG_BLACK);
-    }
-    esma_log("=== Results ===");
-    esma_log(ESMA_C_RESET);
-    esma_log("\n");
-    esma_log("TOTAL: %i\n", tests_run);
-    esma_log("OK: %i\n", tests_ok);
-    esma_log("FAIL: %i\n", tests_failed);
-}
+#define esma_report() do {                         \
+    esma_log("\n");                                \
+    if (tests_failed == 0) {                       \
+        esma_log(ESMA_C_BG_GREEN ESMA_C_FG_BLACK); \
+    } else {                                       \
+        esma_log(ESMA_C_BG_RED ESMA_C_FG_BLACK);   \
+    }                                              \
+    esma_log("=== Results ===");                   \
+    esma_log(ESMA_C_RESET);                        \
+    esma_log("\n");                                \
+    esma_log("TOTAL: %i\n", tests_run);            \
+    esma_log("OK: %i\n", tests_ok);                \
+    esma_log("FAIL: %i\n", tests_failed);          \
+} while (0);
 
 #endif // _MIMINO_ESMA_H
