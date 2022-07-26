@@ -584,9 +584,9 @@ do_conn_state(Server *serv, nfds_t idx)
 
         case W_MAX_TRIES:
             if (serv->conf.verbose) {
-                printf("DEB: write_headers() on connection %d "
+                printf("DEB: write_headers() on connection %lud "
                        "returned W_MAX_TRIES with error \"%s\"\n",
-                       conn->res->error);
+                       idx, conn->res->error);
             }
             set_conn_state(pfd, conn, CONN_STATE_CLOSING);
             do_conn_state(serv, idx);
@@ -594,9 +594,9 @@ do_conn_state(Server *serv, nfds_t idx)
 
         case W_FATAL_ERROR:
             if (serv->conf.verbose) {
-                printf("DEB: write_headers() on connection %d "
+                printf("DEB: write_headers() on connection %lud "
                        "returned W_FATAL_ERROR with error \"%s\"\n",
-                       conn->res->error);
+                       idx, conn->res->error);
             }
             set_conn_state(pfd, conn, CONN_STATE_CLOSING);
             do_conn_state(serv, idx);
@@ -619,11 +619,14 @@ do_conn_state(Server *serv, nfds_t idx)
         if (!(pfd->revents & POLLOUT))
             return 0;
 
+        int write_fn; // If write_body was called, holds 0, otherwise holds 1
         int status;
         if (conn->res->body.data) {
             status = write_body(conn);
+            write_fn = 0;
         } else {
             status = write_file(conn);
+            write_fn = 1;
         }
         switch (status) {
         case W_PARTIAL_WRITE:
@@ -639,14 +642,16 @@ do_conn_state(Server *serv, nfds_t idx)
         case W_FATAL_ERROR:
             // TODO: print error stuff
             if (serv->conf.verbose) {
-                log_debug("Max tries reached for ");
+                if (write_fn == 0) {
+                    printf("ERR: write_file() on connection %lud "
+                           "returned W_FATAL_ERROR with error \"%s\"\n",
+                           idx, conn->res->error);
+                } else {
+                    printf("ERR: write_body() on connection %lud "
+                           "returned W_FATAL_ERROR with error \"%s\"\n",
+                           idx, conn->res->error);
+                }
             }
-            log_error();
-            /*if (conn->res->error) {
-                fprintf(stdout,
-                        "Error when writing response: %s\n",
-                        conn->req->error);
-            }*/
             set_conn_state(pfd, conn, CONN_STATE_CLOSING);
             do_conn_state(serv, idx);
             break;

@@ -2,6 +2,7 @@
 #define _MIMINO_DIR_H
 
 #include <sys/types.h>
+#include <stdio.h>
 
 #define TB_SIZE 0xE8D4A51000
 #define GB_SIZE 0x3B9ACA00
