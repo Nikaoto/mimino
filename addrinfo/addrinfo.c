@@ -21,7 +21,7 @@ int main(int argc, char **argv)
         else
             url = argv[1];
     }
-    
+
     // Set port
     char *port = "80";
     if (argc >= 3) {

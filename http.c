@@ -39,7 +39,7 @@ is_http_end(char *buf, size_t size)
     }
 
     return
-        buf[i-3] == '\r' && buf[i-2] == '\n' && 
+        buf[i-3] == '\r' && buf[i-2] == '\n' &&
         buf[i-1] == '\r' && buf[i] == '\n';
 }
 
@@ -145,25 +145,25 @@ parse_http_request(Http_Request *req)
         if (*r == '\r' && *(r + 1) == '\n') {
             return req;
         }
-  
+
         // Header name
         hn = r;
         while (is_alpha(*r) || *r == '-')
             SAFE_ADVANCE(r, 1);
         //hn_len = (size_t) (r - hn);
-  
+
         if (*r != ':') {
             req->error = "No ':' after header name";
             return req;
         }
         SAFE_ADVANCE(r, 1);
-  
+
         if (*r != ' ') {
             req->error = "No space after header name colon";
             return req;
         }
         SAFE_ADVANCE(r, 1);
-  
+
         // Header value
         for(hv = r; !(*r == '\r' && *(r+1) == '\n');) {
             if (*r == '\0') {
@@ -519,10 +519,10 @@ decode_url(char *url)
                 i += 2;
                 continue;
             }
-            
+
         }
 
-        *p++ = url[i];   
+        *p++ = url[i];
     }
 
     *p = '\0';

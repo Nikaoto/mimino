@@ -1,6 +1,6 @@
 /*
   Start local server that receives and dumps data one client at a time.
-  Usage: ./recvserver [port]  
+  Usage: ./recvserver [port]
 */
 
 #include <stdio.h>
