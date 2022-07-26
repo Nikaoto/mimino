@@ -24,6 +24,7 @@
 #include "defer.h"
 #include "http.h"
 #include "arg.h"
+#include "connection.h"
 
 int sockbind(struct addrinfo *ai);
 int send_buf(int sock, char *buf, size_t nbytes);
@@ -33,56 +34,29 @@ void hex_dump_line(FILE *stream, char *buf, size_t buf_size, size_t width);
 void dump_data(FILE *stream, char *buf, size_t bufsize, size_t nbytes_recvd);
 void ascii_dump_buf(FILE *stream, char *buf, size_t buf_size);
 
+static Poll_Queue poll_queue;
+
 void
-print_connection(struct pollfd *pfd, Connection *conn)
+print_server_config(Server_Config *conf)
 {
-    if (!conn) {
-        printf("(Connection) NULL\n");
+    if (!conf) {
+        printf("(Server_Config) (NULL)\n");
         return;
     }
 
-    printf("(struct pollfd) {\n");
-    printf("  .fd = %d,\n", pfd->fd);
-    printf("  .events = %0X,\n", pfd->events);
-    printf("  .revents = %0X,\n", pfd->revents);
-    printf("}\n");
-
-    printf("(Connection) {\n");
-    printf("  .status = %i,\n", conn->status);
-    printf("  .read_tries_left = %d,\n", conn->read_tries_left);
-    printf("  .write_tries_left = %d,\n", conn->write_tries_left);
-    printf("  .req = ");
-    print_http_request(stdout, conn->req);
-    printf("  .res = \n");
-    print_http_response(stdout, conn->res);
+    printf("(Server_Config) = {\n");
+    printf("  .verbose = %d,\n", conf->verbose);
+    printf("  .quiet = %d,\n", conf->quiet);
+    printf("  .unsafe = %d,\n", conf->unsafe);
+    printf("  .chroot = %d,\n", conf->chroot);
+    printf("  .serve_error_files = %d,\n", conf->serve_error_files);
+    printf("  .serve_path = \"%s\",\n", conf->serve_path);
+    printf("  .port = \"%s\",\n", conf->port);
+    printf("  .index = \"%s\",\n", conf->index);
+    printf("  .suffix = \"%s\",\n", conf->suffix);
+    printf("  .chroot_dir = \"%s\",\n", conf->chroot_dir);
     printf("}\n");
 }
-
-void
-free_connection_parts(Connection *conn)
-{
-    if (!conn) return;
-
-    free_http_request(conn->req);
-    free_http_response(conn->res);
-    //free(conn);
-}
-
-Connection
-new_connection(int fd, struct pollfd *pfd)
-{
-    return (Connection) {
-        .fd = fd,
-        .pollfd = pfd,
-        .status = CONN_STATUS_READING,
-        .req = NULL,
-        .res = NULL,
-        .read_tries_left = 5,
-        .write_tries_left = 5,
-    };
-}
-
-static Poll_Queue poll_queue;
 
 int
 init_server(char *port, struct addrinfo *server_addrinfo)
@@ -390,10 +364,9 @@ main(int argc, char **argv)
         serv.conf.chroot_dir = serv.conf.serve_path;
     }
 
-    // TODO: print server config here if verbose
+    // Print server configuration
+    if (!serv.conf.quiet) print_server_config(&serv.conf);
     
-    return 0;
-
     // Init server
     char ip_str[INET6_ADDRSTRLEN];
     struct addrinfo server_addrinfo = {0};
@@ -427,8 +400,8 @@ main(int argc, char **argv)
     };
     poll_queue.pollfd_count = 1;
     // NOTE: This connection won't be used; it's the listen socket
-    poll_queue.conns[0] = new_connection(listen_sock,
-                                         &poll_queue.pollfds[0]);
+    poll_queue.conns[0] = make_connection(listen_sock,
+                                          &poll_queue.pollfds[0]);
 
     // Main loop
     while (1) {
@@ -443,7 +416,7 @@ main(int argc, char **argv)
             continue;
         }
 
-        if (serv.verbose) {
+        if (serv.conf.verbose) {
             printf("\n\nSERVER STATE BEFORE ITERATION:\n");
             printf("pollfd_count: %zu\n", poll_queue.pollfd_count);
             for (nfds_t i = 1; i < poll_queue.pollfd_count; i++) {
@@ -474,7 +447,7 @@ main(int argc, char **argv)
                         .revents = 0,
                     };
                     poll_queue.conns[i] =
-                        new_connection(newsock, poll_queue.pollfds + i);
+                        make_connection(newsock, poll_queue.pollfds + i);
 
                     // Restart loop to prioritize new connections
                     continue;
@@ -541,7 +514,7 @@ main(int argc, char **argv)
                 if (!conn->res) {
                     conn->res = make_http_response(&serv, conn->req);
 
-                    if (serv.verbose) {
+                    if (serv.conf.verbose) {
                         printf("-----------------\n");
                         print_http_request(stdout, conn->req);
                         print_http_response(stdout, conn->res);
@@ -577,7 +550,7 @@ main(int argc, char **argv)
             }
         }
 
-        if (serv.verbose) {
+        if (serv.conf.verbose) {
             printf("\n\nSERVER STATE AFTER ITERATION:\n");
             printf("pollfd_count: %zu\n", poll_queue.pollfd_count);
             for (nfds_t i = 1; i < poll_queue.pollfd_count; i++) {

@@ -228,13 +228,13 @@ print_http_request(FILE *f, Http_Request *req)
     return;
 
     fprintf(f, "(Http_Request) {\n");
-    fprintf(f, "  .method = %s,\n", req->method);
-    fprintf(f, "  .path = %s,\n", req->path);
-    fprintf(f, "  .version_number = %s,\n", req->version_number);
-    fprintf(f, "  .host = %s,\n", req->host);
-    fprintf(f, "  .user_agent = %s,\n", req->user_agent);
-    fprintf(f, "  .accept = %s,\n", req->accept);
-    fprintf(f, "  .error = %s,\n", req->error);
+    fprintf(f, "  .method = \"%s\",\n", req->method);
+    fprintf(f, "  .path = \"%s\",\n", req->path);
+    fprintf(f, "  .version_number = \"%s\",\n", req->version_number);
+    fprintf(f, "  .host = \"%s\",\n", req->host);
+    fprintf(f, "  .user_agent = \"%s\",\n", req->user_agent);
+    fprintf(f, "  .accept = \"%s\",\n", req->accept);
+    fprintf(f, "  .error = \"%s\",\n", req->error);
     fprintf(f, "}\n");
 }
 
@@ -341,7 +341,7 @@ make_http_response(Server *serv, Http_Request *req)
     defer(&dq, free, decoded_http_path);
 
     // Real path to the file on the server
-    char *real_path = resolve_path(serv->serve_path, decoded_http_path);
+    char *real_path = resolve_path(serv->conf.serve_path, decoded_http_path);
     defer(&dq, free, real_path);
 
     /* printf("serve path: %s\n", serv->serve_path); */

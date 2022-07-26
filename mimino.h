@@ -49,7 +49,6 @@ typedef struct {
     int status;
 } Connection;
 
-
 typedef struct {
     int verbose;
     int quiet;
@@ -65,9 +64,6 @@ typedef struct {
 
 typedef struct {
     Server_Config conf;
-    int verbose;
-    int quiet;
-    char *serve_path;
     int sock;
     char ip[INET6_ADDRSTRLEN];
     struct addrinfo addrinfo;

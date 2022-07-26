@@ -171,10 +171,10 @@ print_argdef(Argdef *a)
     printf("(Argdef) {\n");
     printf("  .short_arg = %c\n", a->short_arg);
     printf("  .long_arg = %s\n", a->long_arg);
-    printf("  .err = %s\n", a->err);
+    printf("  .err = \"%s\"\n", a->err);
     printf("  .type = %c\n", a->type);
     printf("  .bvalue = %d\n", a->bvalue);
-    printf("  .value = %s\n", a->value);
+    printf("  .value = \"%s\"\n", a->value);
     printf("}\n");
 }
 

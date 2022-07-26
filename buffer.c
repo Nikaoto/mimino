@@ -76,7 +76,7 @@ buf_append(Buffer *b, char *src, size_t n)
 void
 buf_append_str(Buffer *b, char *str)
 {
-    return buf_append(b, str, strlen(str));
+    buf_append(b, str, strlen(str));
 }
 
 // Does not copy the null terminator

@@ -1,6 +1,6 @@
 # Makefile
 CC := cc
-CWARNS := -Wall -Wno-comments -Wno-implicit-fallthrough -Wno-incompatible-pointer-types
+CWARNS := -Wall -Wpedantic -Wextra -Wno-comments -Wno-implicit-fallthrough -Wno-incompatible-pointer-types
 CFLAGS := $(CWARNS) -g
 FAST_CFLAGS := -O2 -Wall -Wpedantic -Wextra -g
 LINK := $(CC)
@@ -12,13 +12,14 @@ all: mimino
 
 OBJS_DIR=.objs
 OBJS= \
-	$(OBJS_DIR)/buffer.o  \
-	$(OBJS_DIR)/arg.o     \
-	$(OBJS_DIR)/dir.o     \
-	$(OBJS_DIR)/http.o    \
-	$(OBJS_DIR)/xmalloc.o \
-	$(OBJS_DIR)/defer.o   \
-	$(OBJS_DIR)/ascii.o   \
+	$(OBJS_DIR)/buffer.o       \
+	$(OBJS_DIR)/arg.o          \
+	$(OBJS_DIR)/dir.o          \
+	$(OBJS_DIR)/http.o         \
+	$(OBJS_DIR)/xmalloc.o      \
+	$(OBJS_DIR)/defer.o        \
+	$(OBJS_DIR)/ascii.o        \
+	$(OBJS_DIR)/connection.o   \
 
 $(shell mkdir -p $(OBJS_DIR))
 
