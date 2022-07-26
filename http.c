@@ -238,9 +238,8 @@ print_http_request(FILE *f, Http_Request *req)
     fprintf(f, "}\n");
 }
 
-// dir_path is the path of the directory containing the files
 void
-file_list_to_html(Buffer *buf, char *dir_path, File_List *fl)
+file_list_to_html(Buffer *buf, char *endpoint, File_List *fl)
 {
     buf_append_str(
         buf,
@@ -252,12 +251,13 @@ file_list_to_html(Buffer *buf, char *dir_path, File_List *fl)
           ".red { color: crimson; }\n"
         "</style></head>\n");
 
+    // Show endpoint as header
     buf_sprintf(
         buf,
         "<body>\n"
         "<h1>%s</h1>\n"
         "<table>\n",
-        dir_path);
+        endpoint);
 
     for (size_t i = 0; i < fl->len; i++) {
         File *f = fl->files + i;
@@ -291,6 +291,39 @@ file_list_to_html(Buffer *buf, char *dir_path, File_List *fl)
     buf_append_str(buf, "</table></body></html>\r\n");
 }
 
+void
+buf_write_dirlisting_http(Buffer *buf, char *dir, char *http_path)
+{
+    // Forward to path with trailing slash if it's missing
+    if (http_path[strlen(http_path) - 1] != '/') {
+        buf_sprintf(
+            buf,
+            "HTTP/1.1 301\r\n"
+            "Location:%s/\r\n\r\n",
+            http_path);
+        return;
+    }
+
+    // Get file list
+    File_List *fl = ls(dir);
+    if (!fl) {
+        // Internal error
+        buf_append_str(buf, "HTTP/1.1 500\r\n");
+        return;
+    }
+
+    // Write html into response buffer
+    buf_append_str(
+        buf,
+        "HTTP/1.1 200\r\n"
+        "Content-Type: text/html; charset=UTF-8\r\n\r\n");
+    file_list_to_html(buf, http_path, fl);
+    buf_append_str(buf, "\r\n");
+
+    free_file_list(fl);
+    return;
+}
+
 Http_Response*
 make_http_response(Server *serv, Http_Request *req)
 {
@@ -307,8 +340,9 @@ make_http_response(Server *serv, Http_Request *req)
     free(clean_http_path);
     defer(&dq, free, decoded_http_path);
 
-    char *path = resolve_path(serv->serve_path, decoded_http_path);
-    defer(&dq, free, path);
+    // Real path to the file on the server
+    char *real_path = resolve_path(serv->serve_path, decoded_http_path);
+    defer(&dq, free, real_path);
 
     /* printf("serve path: %s\n", serv->serve_path); */
     /* printf("request path: %s\n", req->path); */
@@ -316,14 +350,14 @@ make_http_response(Server *serv, Http_Request *req)
     /* printf("resolved path: %s\n", path); */
 
     // Find out if we're listing a dir or serving a file
-    char *base_name = get_base_name(path);
-    int read_result = read_file_info(&file, path, base_name);
+    char *base_name = get_base_name(real_path);
+    int read_result = read_file_info(&file, real_path, base_name);
     free(base_name);
     defer(&dq, free_file_parts, &file);
 
     // File not found
     if (read_result == -1) {
-        printf("file %s not found\n", path);
+        printf("file %s not found\n", real_path);
         buf_append_str(res->buf, "HTTP/1.1 404\r\n\r\n");
         // TODO: buf_append_http_error_msg(404);
         buf_append_str(res->buf, "Error 404: file not found\r\n");
@@ -338,36 +372,7 @@ make_http_response(Server *serv, Http_Request *req)
 
     // We're serving a dirlisting
     if (file.is_dir) {
-        // Forward to path with trailing slash if it's missing
-        if (decoded_http_path[strlen(decoded_http_path) - 1] != '/') {
-            buf_sprintf(
-                res->buf,
-                "HTTP/1.1 301\r\n"
-                "Location:%s/\r\n\r\n",
-                decoded_http_path);
-            return fulfill(&dq, res);
-        }
-
-        Defer_Queue dqfl = NULL_DEFER_QUEUE;
-
-        // Get file list
-        File_List *fl = ls(path);
-        if (!fl) {
-            // Internal error
-            buf_append_str(res->buf, "HTTP/1.1 500\r\n");
-            return fulfill(&dq, res);
-        }
-        defer(&dqfl, free_file_list, fl);
-
-        // Write html into response buffer
-        buf_append_str(res->buf, "HTTP/1.1 200\r\n");
-        buf_append_str(
-            res->buf,
-            "Content-Type: text/html; charset=UTF-8\r\n\r\n");
-        file_list_to_html(res->buf, decoded_http_path, fl);
-        buf_append_str(res->buf, "\r\n");
-
-        fulfill(&dqfl, NULL);
+        buf_write_dirlisting_http(res->buf, real_path, decoded_http_path);
         return fulfill(&dq, res);
     }
 
@@ -405,7 +410,7 @@ make_http_response(Server *serv, Http_Request *req)
     //ascii_dump_buf(stdout, res.data, res.n_items);
 
     // Write file contents
-    int code = buf_append_file_contents(res->buf, &file, path);
+    int code = buf_append_file_contents(res->buf, &file, real_path);
     if (code == -1 || code == 0) {
         // TODO: handle this failure better (with a 500 err code).
         fprintf(stderr,
