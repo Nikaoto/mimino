@@ -383,10 +383,14 @@ write_file(Connection *conn)
         }
 
         conn->res->file_offset += sent;
-        conn->res->file_nbytes_sent += sent;
+        conn->res->file_nbytes_sent += sent; // TODO: useless?
 
-        // Retry later if not sent fully
-        if ((size_t) sent < bytes_read) {
+        // Retry later if not sent at all
+
+        // TODO: a better mechanic for dropping unresponsive
+        // clients is to time the activity: if the client doesn't
+        // receive any data for x seconds, drop the connection
+        if ((size_t) sent == 0) {
             // This only happens when the client has a sudden
             // disconnection. Retrying later gives the client
             // some time to regain the connection.
@@ -398,6 +402,8 @@ write_file(Connection *conn)
             conn->write_tries_left--;
 
             return fulfill(&dq, W_PARTIAL_WRITE);
+        } else {
+            conn->write_tries_left = 5;
         }
     };
 
@@ -616,6 +622,7 @@ do_conn_state(Server *serv, nfds_t idx)
 
         case W_MAX_TRIES:
             // TODO: print error stuff
+            printf("W_MAX_TRIES\n");
             set_conn_state(pfd, conn, CONN_STATE_CLOSING);
             do_conn_state(serv, idx);
             break;
