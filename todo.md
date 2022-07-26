@@ -1,7 +1,4 @@
 ## TODO
-
-- error logging
-- debug logging
 - think of a way to enable both dirlisting and indexing (maybe `-d`
   flag to disable dirlistings?)
 
@@ -19,9 +16,6 @@
   - something about changing the GID and UID of the UNIX-domain socket file
   - restrict linking to directories outside serve_dir (unless `serv.conf.unsafe`
     is set)
-
-- logging / debugging
-  - put a verbose flag check before every log
 
 - features
   - mobile css
@@ -63,7 +57,60 @@
   - [Roy Fieldings REST dissertation](https://www.ics.uci.edu/~fielding/pubs/dissertation/top.htm)
   - [darkhttpd](https://unix4lyfe.org/darkhttpd/)
 
+### Logging
+With logging, I want to find out:
+ 1. how many requests I am serving per day, per week, per month.
+ 2. how many bytes I am receiving/sending per day, per week, per month
+ 3. how many unique visitors I am getting per day, per week, per month
+ 4. how many concurrent connections I am handling right now (and how many are
+    in which state), something like nginx_status
+ 5. average request duration in last 5 minutes or so
+ 6. total memory usage of mimino process
+
+- For numbers 1 and 3: Log requests and analyze the logs using a sed script.
+- For numbers 4, 5: Have a statsfile that gets updated every 10 seconds by mimino.
+- For number 6: Use the statsfile and get VmSize and VmRSS values from
+  /proc/self/status (https://stackoverflow.com/a/64166)
+
+#### Log Format
+
+**Date format in logs**
+```
+2022-05-10T14:51:38+04:00
+```
+
+**Normal request logs**
+```
+date IP "method url httpversion" httpcode referer useragent
+```
+
+**Error logs**
+
+Only the issues that are most likely caused by the server are considered errors.
+For example, if a client stops receiving data, that's not an error, just a debug
+log saying we couldn't send any more data.
+
+Error logs (actual errors like 5xx, not 4xx) should appear along with the normal
+request log for the request that caused the error:
+```
+ERR-0001: Normal request log
+ERR-0001: Error message, which
+ERR-0001: can be multiline.
+ERR-0002: Normal request log
+ERR-0002: This is a different error with a different id.
+```
+
+This way, all (even multiline) errors can be searched with `grep logfile ^ERR`.
+The number is just the ID of the error, used only to distinguish between
+different error messages.
+
+**Debug logs**
+```
+DEB: msg
+```
+
 ## Pre-release checklist
+
 - Run performance test with https://github.com/wg/wrk
 - Write mimino-forwarder
 - Remove unnecessary logging & printfs

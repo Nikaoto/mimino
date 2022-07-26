@@ -250,6 +250,7 @@ read_request(Connection *conn)
     return R_PARTIAL_READ;
 }
 
+#define W_TIMED_OUT      -3
 #define W_MAX_TRIES      -2
 #define W_FATAL_ERROR    -1
 #define W_PARTIAL_WRITE   0
@@ -582,13 +583,21 @@ do_conn_state(Server *serv, nfds_t idx)
             return 0;
 
         case W_MAX_TRIES:
-            // TODO: print error stuff
+            if (serv->conf.verbose) {
+                printf("DEB: write_headers() on connection %d "
+                       "returned W_MAX_TRIES with error \"%s\"\n",
+                       conn->res->error);
+            }
             set_conn_state(pfd, conn, CONN_STATE_CLOSING);
             do_conn_state(serv, idx);
             break;
 
         case W_FATAL_ERROR:
-            // TODO: print error stuff
+            if (serv->conf.verbose) {
+                printf("DEB: write_headers() on connection %d "
+                       "returned W_FATAL_ERROR with error \"%s\"\n",
+                       conn->res->error);
+            }
             set_conn_state(pfd, conn, CONN_STATE_CLOSING);
             do_conn_state(serv, idx);
             break;
@@ -629,6 +638,10 @@ do_conn_state(Server *serv, nfds_t idx)
 
         case W_FATAL_ERROR:
             // TODO: print error stuff
+            if (serv->conf.verbose) {
+                log_debug("Max tries reached for ");
+            }
+            log_error();
             /*if (conn->res->error) {
                 fprintf(stdout,
                         "Error when writing response: %s\n",
@@ -952,7 +965,7 @@ send_buf(int sock, char *buf, size_t len)
                 continue;
             case ECONNRESET:
             default:
-                perror("send()");
+                //perror("send()");
                 return -1;
                 break;
             }
