@@ -35,6 +35,12 @@ typedef struct {
     char *accept;
     char *connection;
     char *error;
+
+    int range_start_given;
+    off_t range_start;
+
+    int range_end_given;
+    off_t range_end;
 } Http_Request;
 
 typedef struct {
@@ -48,6 +54,9 @@ typedef struct {
     off_t file_offset;
     size_t file_nbytes_sent;
     char *file_path;
+
+    off_t range_start;
+    off_t range_end;
 
     char *error;
 } Http_Response;

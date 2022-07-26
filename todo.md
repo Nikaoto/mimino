@@ -47,7 +47,7 @@
 - optimizaiton
   - use hashmap instead of lookup table for mime types
   - when serving a single non-directory file, don't resolve any paths
-  - caching with infinite (?) TTL
+  - implement caching (with infinite (?) TTL)
   - use readdir() instead of scandir() for faster dir scanning
     (~/src/darkhttpd/darkhttpd.c:1830:0)
   - Try on improvements from GoodSocket by jart:

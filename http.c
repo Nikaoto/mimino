@@ -58,6 +58,99 @@ is_http_end(char *buf, size_t size)
         buf[i-1] == '\r' && buf[i] == '\n';
 }
 
+// Return a ^ b.
+// Expects b >= 0.
+long long
+ll_power(long long a, long long b) {
+    if (b == 0) return 1;
+
+    long long ret = a;
+    while (b > 1) {
+        ret *= a;
+        b--;
+    }
+
+    return ret;
+}
+
+// Parses next number, returns its value and advances 'str' to stand on the
+// char after number.
+// Assumes 'str' starts with a digit.
+// 'end' is he outer bound of the string.
+long long
+consume_next_num(char **str, char *end)
+{
+    long long num = 0;
+    int num_len = 0;
+    while (is_digit(*(*str + num_len)) && (*str + num_len) != end) {
+        num_len++;
+    }
+
+    for (int i = 0; i < num_len; i++) {
+        n = *(*str + i) - '0';
+        long long increment = ((long long) n) * ll_power(10, num_len - i - 1);
+        num += increment;
+    }
+
+    *str += num_len;
+
+    return num;
+}
+
+int
+parse_range_header(
+    char *str,
+    size_t len,
+    int* range_start_given,
+    off_t* range_start,
+    int* range_end_given,
+    off_t* range_end)
+{
+    char *end = str + len;
+
+    // Advance str by n bytes; Return if running over buffer
+    #define SAFE_ADVANCE(str, n) {  \
+        if (((str) + (n)) >= end) { \
+            return 0;               \
+        }                           \
+        (str) += (n);               \
+    }
+
+    if (strncmp(str, "bytes=", 6)) {
+        return 0;
+    }
+    SAFE_ADVANCE(str, 6);
+
+    // Range start
+    if (is_digit(*str)) {
+        *range_start_given = 1;
+        *range_start = (off_t) consume_next_num(&str, end);
+    }
+
+    // The dash between the ranges
+    if (*str != '-') {
+        *range_start_given = 0;
+        return 0;
+    }
+    SAFE_ADVANCE(str, 1);
+
+    // Range end
+    if (is_digit(*str)) {
+        *range_end_given = 1;
+        *range_end = (off_t) consume_next_num(&str, end);
+    }
+
+    // Neither of the ranges were given
+    if (!range_start_given && !range_end_given) {
+        *range_start = 0;
+        *range_end = 0;
+        return 0;
+    }
+
+    return 1;
+    #undef SAFE_ADVANCE
+}
+
 // Parses buffer and fills out Http_Request fields
 Http_Request*
 parse_http_request(Http_Request *req)
@@ -74,7 +167,7 @@ parse_http_request(Http_Request *req)
         (str) += (n);                      \
     }
 
-    // Left and right boundaries of a token
+    // Left (l) and right (r) boundaries of a token
     char *l = req->buf->data;
     char *r = req->buf->data;
 
@@ -209,10 +302,17 @@ parse_http_request(Http_Request *req)
             req->accept = xstrndup(hv, hv_len);
         } else if (!strncasecmp("Connection:", hn, hn_len + 1)) {
             req->connection = xstrndup(hv, hv_len);
+        } else if (!strncasecmp("Range:", hn, hn_len + 1)) {
+            parse_range_header(hv, hv_len,
+                               &req->range_start_given,
+                               &req->range_start,
+                               &req->range_end_given,
+                               &req->range_end);
         }
     }
 
     return req;
+    #undef SAFE_ADVANCE
 }
 
 void
@@ -249,6 +349,10 @@ print_http_request(FILE *f, Http_Request *req)
     fprintf(f, "  .user_agent = \"%s\",\n", req->user_agent);
     fprintf(f, "  .accept = \"%s\",\n", req->accept);
     fprintf(f, "  .error = \"%s\",\n", req->error);
+    fprintf(f, "  .range_start_given = %d,\n", req->range_start_given);
+    fprintf(f, "  .range_start = %zu,\n", req->range_start);
+    fprintf(f, "  .range_end_given = %d,\n", req->range_end_given);
+    fprintf(f, "  .range_end = %zu,\n", req->range_end);
     fprintf(f, "}\n");
 }
 
@@ -363,6 +467,11 @@ make_http_response(Server *serv, Http_Request *req)
     res->file_nbytes_sent = 0;
     res->file_path = NULL;
 
+    res->range_start = req->range_start_given ?
+        req->range_start : 0;
+    res->range_end = req->range_end_given ?
+        req->range_end : (off_t) res->body.n_items;
+
     res->error = NULL;
 
     char *clean_http_path = cleanup_path(req->path);
@@ -390,6 +499,7 @@ make_http_response(Server *serv, Http_Request *req)
         /* TODO: have a function like
             `write_standard_headers(buf, serv)` that puts
             Connection, Keep-Alive, Date headers into buf */
+        buf_append_str(&res->head, "Accept-Ranges: bytes\r\n");
         buf_append_str(&res->head, "Content-Type: text/plain\r\n");
         buf_sprintf(&res->head, "Content-Length: %zu\r\n", strlen(body));
         /*buf_sprintf(res->buf, "Keep-Alive: timeout=%d\r\n",
@@ -419,6 +529,7 @@ make_http_response(Server *serv, Http_Request *req)
                 "HTTP/1.1 301\r\n"
                 "Location: %s/\r\n",
                 decoded_http_path);
+            buf_append_str(&res->head, "Accept-Ranges: bytes\r\n");
             /*buf_sprintf(
                 &res->head,
                 "Keep-Alive: timeout=%d\r\n\r\n",
@@ -455,12 +566,29 @@ make_http_response(Server *serv, Http_Request *req)
                 &res->body,
                 real_path,
                 decoded_http_path);
+
+            // Check if the ranges given are invalid
+            if ((req->range_start_given &&
+                 req->range_start > (off_t) res->body.n_items) ||
+                (req->range_end_given &&
+                 req->range_end > (off_t) res->body.n_items)) {
+                // TODO: return range cannot be satisfied error
+            }
             return fulfill(&dq, res);
         }
     }
 
     // We're serving a single file
+    // Check if the ranges given are invalid
+    if ((req->range_start_given &&
+         req->range_start > res->file.size) ||
+        (req->range_end_given &&
+         req->range_end > res->file.size)) {
+        // TODO: return range cannot be satisfied error
+    }
+
     buf_append_str(&res->head, "HTTP/1.1 200\r\n");
+    buf_append_str(&res->head, "Accept-Ranges: bytes\r\n");
 
     // Keep-Alive
     /*buf_sprintf(

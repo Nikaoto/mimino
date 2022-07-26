@@ -295,7 +295,10 @@ write_body(Connection *conn)
 
     int sent = send_buf(
         conn->fd,
+        //conn->res->range_start +
         conn->res->body.data + conn->res->body_nbytes_sent,
+        //conn->res->range_end - conn->res->body_nbytes_sent
+        // use this ^ instead of the thing below V
         conn->res->body.n_items - conn->res->body_nbytes_sent);
 
     // Fatal error, no use retrying
@@ -307,6 +310,17 @@ write_body(Connection *conn)
     conn->res->body_nbytes_sent += sent;
 
     // Retry later if not sent fully
+    /*
+      TODO: the actual check for if the requested data was
+      fully sent or not should look like something below:
+
+      res->range_start = req->range_start_given ?
+          req->range_start : 0;
+      res->range_end = req->range_end_given ?
+          req->range_end : res->body.n_items;
+
+      if (res->range_start + conn->res->body_nbytes_sent < res->range_end) {
+     */
     if (conn->res->body_nbytes_sent < conn->res->body.n_items) {
         if (conn->write_tries_left == 0) {
             conn->res->error = "write_body(): Max write tries reached";
@@ -507,6 +521,8 @@ do_conn_state(Server *serv, nfds_t idx)
             // Reading done, parse request
             // TODO: turn this into a separate state
             parse_http_request(conn->req);
+
+            print_http_request(stdout, conn->req);
 
             // Parse error
             if (conn->req->error) {
@@ -901,11 +917,30 @@ send_buf(int sock, char *buf, size_t len)
     size_t nbytes_sent;
     int try = 5;
 
+    // TODO: This retry loop might be unnecessary.
+    //
+    // * Retrying immediately on EINTR/EAGAIN will most likely
+    // do nothing as not enough time will have passed for the
+    // socket to become writable.
+    //
+    // * Run a load test on the server using this retry
+    // mechanism and then run one where try=1.
+    //
+    // My theory is that the latter variant will be slightly
+    // faster as it won't unsuccessfully call send() 4 more
+    // times every time we have a temporarily unavailable
+    // socket and instead will serve other requests and thus
+    // pass time until the blocked sockets become available
+    // again.
+    // 
+    // A retry mechanism in general is useful for
+    // slow/intermittent connections, so even if I end up
+    // removing the one below, it's still wise to have one
+    // outside this function.
     for (nbytes_sent = 0; nbytes_sent < len;) {
         int sent = send(sock, buf, len, 0);
         int saved_errno = errno;
         if (sent == -1) {
-            perror("send()");
             switch (saved_errno) {
             case EINTR:
             case EAGAIN:
@@ -915,6 +950,7 @@ send_buf(int sock, char *buf, size_t len)
                 continue;
             case ECONNRESET:
             default:
+                perror("send()");
                 return -1;
                 break;
             }
