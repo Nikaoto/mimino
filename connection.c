@@ -3,7 +3,7 @@
 #include "http.h"
 
 Connection
-make_connection(int fd, struct pollfd *pfd)
+make_connection(int fd, struct pollfd *pfd, time_t t)
 {
     return (Connection) {
         .fd = fd,
@@ -14,6 +14,7 @@ make_connection(int fd, struct pollfd *pfd)
         .read_tries_left = 5,
         .write_tries_left = 5,
         .keep_alive = 1,
+        .last_active = t,
     };
 }
 
@@ -46,6 +47,7 @@ print_connection(struct pollfd *pfd, Connection *conn)
     printf("  .read_tries_left = %d,\n", conn->read_tries_left);
     printf("  .write_tries_left = %d,\n", conn->write_tries_left);
     printf("  .keep_alive = %d,\n", conn->keep_alive);
+    printf("  .last_active = %ld,\n", (long) conn->last_active);
     printf("  .req = ");
     print_http_request(stdout, conn->req);
     printf("  .res = \n");

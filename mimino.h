@@ -4,6 +4,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <poll.h>
+#include <time.h>
 #include "dir.h"
 #include "buffer.h"
 
@@ -16,10 +17,13 @@
 #define CONN_STATUS_READING   1
 #define CONN_STATUS_WRITING   2
 #define CONN_STATUS_WAITING   3
-#define CONN_STATUS_CLOSED    4
+#define CONN_STATUS_TIMED_OUT 4
+#define CONN_STATUS_CLOSED    5
 
-#define MAX_REQUEST_SIZE       1<<13
-#define RESPONSE_BUF_INIT_SIZE 4096
+#define TIMEOUT_SECS           30
+#define POLL_TIMEOUT_MS        1000
+#define MAX_REQUEST_SIZE       1<<12
+#define RESPONSE_BUF_INIT_SIZE 1<<12
 
 typedef struct {
     Buffer *buf;
@@ -49,6 +53,7 @@ typedef struct {
     int write_tries_left;       // write_response tries left until force closing
     int keep_alive;
     int status;
+    time_t last_active;
 } Connection;
 
 typedef struct {

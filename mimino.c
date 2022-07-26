@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <poll.h>
 #include <dirent.h>
+#include <time.h>
 #include "mimino.h"
 #include "xmalloc.h"
 #include "defer.h"
@@ -30,6 +31,7 @@ void hex_dump_line(FILE *stream, char *buf, size_t buf_size, size_t width);
 void dump_data(FILE *stream, char *buf, size_t bufsize, size_t nbytes_recvd);
 void ascii_dump_buf(FILE *stream, char *buf, size_t buf_size);
 
+static time_t time_now;
 static Poll_Queue poll_queue;
 
 void
@@ -203,6 +205,8 @@ read_request(Connection *conn)
         return 0;
     }
 
+    conn->last_active = time_now; // TODO: add time_now to Server struct
+
     //dump_data(stdout,
     //          conn->req->buf->data + conn->req->buf->n_items,
     //          n,
@@ -264,9 +268,10 @@ void
 close_connection(Poll_Queue *pq, nfds_t i)
 {
     /*
-      No need to check for errno here as most sane OSes close the file
-      descriptor early in their close syscall. So, retrying with the same fd
-      might close some other file. For more info read close(2) manual.
+      No need to check for errno here as most sane OSes close the
+      file descriptor early in their close syscall. So, retrying
+      with the same fd might close some other file. For more info
+      read close(2) manual.
     */
     if (close(pq->pollfds[i].fd) == -1) {
         perror("close()");
@@ -402,23 +407,22 @@ main(int argc, char **argv)
     poll_queue.pollfd_count = 1;
     // NOTE: This connection won't be used; it's the listen socket
     poll_queue.conns[0] = make_connection(listen_sock,
-                                          &poll_queue.pollfds[0]);
+                                          &poll_queue.pollfds[0],
+                                          (time_t) 0);
 
     // Main loop
     while (1) {
-        int nfds = poll(poll_queue.pollfds, poll_queue.pollfd_count, -1);
+        time_now = time(NULL);
+        int nfds = poll(poll_queue.pollfds, poll_queue.pollfd_count, POLL_TIMEOUT_MS);
+
         if (nfds == -1) {
             perror("poll() returned -1");
             return 1;
         }
 
-        if (nfds == 0) {
-            fprintf(stderr, "poll() returned 0\n");
-            continue;
-        }
-
         if (serv.conf.verbose) {
             printf("\n\nSERVER STATE BEFORE ITERATION:\n");
+            printf("time_now: %ld\n", time_now);
             printf("pollfd_count: %zu\n", poll_queue.pollfd_count);
             for (nfds_t i = 1; i < poll_queue.pollfd_count; i++) {
                 printf("Connection %zu:\n", i);
@@ -448,7 +452,9 @@ main(int argc, char **argv)
                         .revents = 0,
                     };
                     poll_queue.conns[i] =
-                        make_connection(newsock, poll_queue.pollfds + i);
+                        make_connection(newsock,
+                                        poll_queue.pollfds + i,
+                                        time_now);
 
                     // Restart loop to prioritize new connections
                     continue;
@@ -459,6 +465,15 @@ main(int argc, char **argv)
         // Iterate poll_queue (starts from 1, skipping listen_sock)
         for (nfds_t fd_i = 1; fd_i < poll_queue.pollfd_count; fd_i++) {
             Connection *conn = &poll_queue.conns[fd_i];
+
+            // Drop connection if it timed out
+            if (conn->last_active + TIMEOUT_SECS <= time_now) {
+                conn->status = CONN_STATUS_TIMED_OUT;
+                fprintf(stdout, "Connection %ld timed out\n", fd_i);
+                free_connection_parts(conn);
+                close_connection(&poll_queue, fd_i);
+                continue;
+            }
 
             switch (conn->status) {
             case CONN_STATUS_READING: {
@@ -503,7 +518,8 @@ main(int argc, char **argv)
                     }
 
                     // Set keep-alive
-                    if (!strcasecmp(conn->req->connection, "close")) {
+                    if (conn->req->connection &&
+                        !strcasecmp(conn->req->connection, "close")) {
                         conn->keep_alive = 0;
                     }
 
@@ -518,6 +534,7 @@ main(int argc, char **argv)
                     continue;
 
                 if (!conn->res) {
+                    conn->last_active = time_now;
                     conn->res = make_http_response(&serv, conn->req);
 
                     if (serv.conf.verbose) {
@@ -530,6 +547,7 @@ main(int argc, char **argv)
 
                 int status = write_response(&serv, conn);
                 if (status == 1) {
+                    conn->last_active = time_now;
                     if (!conn->keep_alive) {
                         // Close when done.
                         // Even HTTP errors like 5xx or 4xx go here.
