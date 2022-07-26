@@ -375,7 +375,7 @@ make_http_response(Server *serv, Http_Request *req)
     int read_result = read_file_info(&file, real_path, base_name);
     free(base_name);
     // FIXME: possible free() call on file.name which might never get allocated
-    defer(&dq, free_file_parts, &file);
+    defer(&dq, (void (*)(void*))free_file_parts, &file);
 
     // File not found
     if (read_result == -1) {

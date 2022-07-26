@@ -43,6 +43,7 @@ print_connection(struct pollfd *pfd, Connection *conn)
     printf("}\n");
 
     printf("(Connection) {\n");
+    printf("  .fd = %i,\n", conn->fd);
     printf("  .status = %i,\n", conn->status);
     printf("  .read_tries_left = %d,\n", conn->read_tries_left);
     printf("  .write_tries_left = %d,\n", conn->write_tries_left);
