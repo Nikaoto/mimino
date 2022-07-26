@@ -309,7 +309,7 @@ construct_http_response(char *serve_path, Http_Request *req)
     }
 
     // We're serving a single file
-    buf_append_str(res->buf, "HTTP/1.1 200\r\n\r\n");
+    buf_append_str(res->buf, "HTTP/1.1 200\r\n");
     // printf("We're serving the file %s\n", file.name);
 
     // Write Content-Type header

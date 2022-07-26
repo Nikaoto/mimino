@@ -257,7 +257,6 @@ print_stat_error(int err, char *path, int is_link)
 char*
 get_base_name(char *path)
 {
-    char *ret;
     size_t l = strlen(path);
     if (l == 1 && (*path == '/' || *path == '.')) {
         return xstrdup(path);

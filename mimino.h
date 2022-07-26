@@ -4,16 +4,14 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <poll.h>
-#include "http.h"
 #include "dir.h"
+#include "buffer.h"
 
-#ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
-#endif
-
-#ifndef MAX
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
-#endif
+
+#define REQ_BUF_SIZE 1024
+#define RES_BUF_SIZE 8192
 
 #define HEXDUMP_DATA 1
 #define DUMP_WIDTH 10
@@ -22,6 +20,24 @@
 #define CONN_STATUS_WRITING   2
 #define CONN_STATUS_WAITING   3
 #define CONN_STATUS_CLOSED    4
+
+typedef struct {
+    char *method;
+    char *path;
+    char *version_number;
+    //char *query;
+    //char *fragment;
+    char *host;
+    char *user_agent;
+    char *accept;
+    char *error;
+} Http_Request;
+
+typedef struct {
+    //char *resolved_path;
+    Buffer *buf;
+    char *error;
+} Http_Response;
 
 typedef struct {
     int fd;

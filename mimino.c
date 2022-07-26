@@ -22,6 +22,7 @@
 #include "mimino.h"
 #include "xmalloc.h"
 #include "defer.h"
+#include "http.h"
 
 int sockbind(struct addrinfo *ai);
 int send_buf(int sock, char *buf, size_t nbytes);
