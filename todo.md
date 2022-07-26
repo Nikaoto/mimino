@@ -1,5 +1,7 @@
 ## TODO
 
+- when serving a single non-directory file, don't resolve any paths
+
 - faster dir scanning (?)
   - use readdir() instead of scandir() ~/src/darkhttpd/darkhttpd.c:1830:0
   
