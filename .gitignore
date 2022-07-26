@@ -3,3 +3,4 @@ addrinfo/addrinfo
 recvserver/recvserver
 mimino
 *.o
+results/
