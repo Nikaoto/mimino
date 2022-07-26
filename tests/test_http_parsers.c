@@ -51,9 +51,7 @@ test_http_parsers()
         char *str = "123456789";
         char *p = str;
         char *end = str + strlen(str) - 1;
-        long long n = consume_next_num(&p, end);
-        printf("%lld\n", n);
-        esma_assert(n == 123456789);
+        esma_assert(consume_next_num(&p, end) == 123456789);
         esma_assert(p == str + 9);
     }
 }
