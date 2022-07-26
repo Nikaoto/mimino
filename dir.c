@@ -6,6 +6,7 @@
 #include <dirent.h>
 #include "dir.h"
 #include "ascii.h"
+#include "xmalloc.h"
 
 void
 print_file_info(FILE *f, File *file)
@@ -30,8 +31,7 @@ resolve_path(char *p1, char *p2)
     // Allocate enough size
     size_t l1 = strlen(p1);
     size_t l2 = strlen(p2);
-    char *res = malloc(l1 + l2 + 1);
-    if (!res) return NULL;
+    char *res = xmalloc(l1 + l2 + 1);
 
     // Copy over first path
     memcpy(res, p1, l1);
@@ -55,7 +55,7 @@ resolve_path(char *p1, char *p2)
 char*
 get_human_file_perms(File *f)
 {
-    char *str = malloc(10);
+    char *str = xmalloc(10);
     if (!str) return NULL;
 
     memset(str, '-', 9);
@@ -102,7 +102,7 @@ char*
 get_human_file_size(off_t size)
 {
     #define LEN 22
-    char *str = malloc(LEN);
+    char *str = xmalloc(LEN);
     if (!str) return NULL;
 
     if (size < KB_SIZE) {
@@ -346,8 +346,7 @@ ls(char *path)
     size_t path_len = strlen(path);
     // Copy path to dir and add trailing '/'
     if (path[path_len - 1] != '/') {
-        dir = malloc(path_len + 1);
-        if (!dir) return NULL;
+        dir = xmalloc(path_len + 1);
         strcpy(dir, path);
         dir_len = path_len + 1;
         dir[dir_len - 1] = '/';
@@ -370,12 +369,12 @@ ls(char *path)
     }
 
     // Init file list
-    File_List *file_list = malloc(sizeof(File_List));
+    File_List *file_list = xmalloc(sizeof(File_List));
     file_list->len = (size_t) n;
-    file_list->files = malloc(sizeof(File) * file_list->len);
+    file_list->files = xmalloc(sizeof(File) * file_list->len);
 
     // Write directory part of full_path
-    char *full_path = malloc(sizeof(char) * dir_len + 256);
+    char *full_path = xmalloc(sizeof(char) * dir_len + 256);
     //                   Maximum size of dirent.d_name ^
     memcpy(full_path, dir, dir_len);
 
