@@ -279,6 +279,12 @@ print_stat_error(int err, char *path, int is_link)
                 "(EOVERFLOW) stats can't fit into statbuf struct; "
                 "may happen when running 32 bit program on a 64 "
                 "bit machine.\n");
+        break;
+    case ENOTDIR:
+        fprintf(stderr,
+                "(ENOTDIR) A component of the path is not a "
+                "directory.\n");
+        break;
     default:
         fprintf(stderr, "unknown error\n");
         break;
@@ -328,6 +334,7 @@ read_file_info(File *f, char *path, char *base_name)
     int err = lstat(path, &sb);
     if (err) {
         int saved_errno = errno;
+        // TODO: return a correct HTTP error response
         print_stat_error(saved_errno, path, 0);
         *f = NULL_FILE;
         return saved_errno == ENOENT ? -1 : -2;
