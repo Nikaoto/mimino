@@ -46,4 +46,10 @@ test: $(OBJS)
 	@echo
 	./tests/run_tests
 
-.PHONY: debug all clean test recvserver addrinfo
+install: mimino
+	install -m755 ./mimino /usr/local/bin/.
+
+uninstall:
+	rm -rf /usr/local/bin/mimino
+
+.PHONY: debug all clean install test recvserver addrinfo
