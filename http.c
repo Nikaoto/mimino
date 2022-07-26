@@ -364,7 +364,8 @@ make_http_response(Server *serv, Http_Request *req)
     return fulfill(&dq, res);
 }
 
-void print_http_response(FILE *stream, Http_Response *res)
+void
+print_http_response(FILE *stream, Http_Response *res)
 {
 
     if (!res) {

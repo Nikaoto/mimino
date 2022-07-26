@@ -50,13 +50,13 @@ print_connection(struct pollfd *pfd, Connection *conn)
     printf("  .status = %i,\n", conn->status);
     printf("  .read_tries_left = %d,\n", conn->read_tries_left);
     printf("  .write_tries_left = %d,\n", conn->write_tries_left);
-    printf("  .req = \n");
+    printf("  .req = ");
     print_http_request(stdout, conn->req);
-    printf("  .req_buf = \n");
-    dump_data(stdout,
-              conn->req_buf,
-              conn->req_buf_i,
-              DUMP_WIDTH);
+    printf("  .req_buf = [OMITTED]\n");
+    /* dump_data(stdout, */
+    /*           conn->req_buf, */
+    /*           conn->req_buf_i, */
+    /*           DUMP_WIDTH); */
     printf("  .res = \n");
     print_http_response(stdout, conn->res);
     printf("}\n");
@@ -203,8 +203,8 @@ accept_new_conn(int listen_sock)
     inet_ntop(their_addr.ss_family,
               get_in_addr((struct sockaddr *)&their_addr),
               their_ip_str, sizeof(their_ip_str));
-    printf("Got connection from %s:%d\n", their_ip_str,
-           ntohs(get_in_port((struct sockaddr *)&their_addr)));
+    /* printf("Got connection from %s:%d\n", their_ip_str, */
+    /*        ntohs(get_in_port((struct sockaddr *)&their_addr))); */
 
     return newsock;
 }
@@ -301,6 +301,7 @@ close_connection(Poll_Queue *pq, nfds_t i)
     if (i != pq->pollfd_count - 1) {
         pq->pollfds[i] = pq->pollfds[pq->pollfd_count - 1];
         pq->conns[i] = pq->conns[pq->pollfd_count - 1];
+        pq->conns[i].pollfd = pq->pollfds + i;
     }
 
     pq->pollfd_count--;
@@ -323,6 +324,7 @@ main(int argc, char **argv)
 
     // TODO: fill with data here later (like CLI configs)
     Server serv = {0};
+    serv.verbose = 0;
     serv.serve_path = path;
     serv.port = port;
 
@@ -375,13 +377,15 @@ main(int argc, char **argv)
             continue;
         }
 
-        printf("\n\nSERVER STATE BEFORE ITERATION:\n");
-        printf("pollfd_count: %zu\n", poll_queue.pollfd_count);
-        for (nfds_t i = 1; i < poll_queue.pollfd_count; i++) {
-            printf("Connection %zu:\n", i);
-            print_connection(poll_queue.pollfds + i,
-                             poll_queue.conns + i);
-            printf("------------\n");
+        if (serv.verbose) {
+            printf("\n\nSERVER STATE BEFORE ITERATION:\n");
+            printf("pollfd_count: %zu\n", poll_queue.pollfd_count);
+            for (nfds_t i = 1; i < poll_queue.pollfd_count; i++) {
+                printf("Connection %zu:\n", i);
+                print_connection(poll_queue.pollfds + i,
+                                 poll_queue.conns + i);
+                printf("------------\n");
+            }
         }
 
         // Accept new connection
@@ -439,7 +443,7 @@ main(int argc, char **argv)
                         // Start writing
                         conn->req = req;
                         conn->status = CONN_STATUS_WRITING;
-                        conn->pollfd->events = POLLOUT;
+                        poll_queue.pollfds[fd_i].events = POLLOUT;
                     }
                 }
                 break;
@@ -447,10 +451,13 @@ main(int argc, char **argv)
                 if (conn->pollfd->revents & POLLOUT) {
                     if (!conn->res) {
                         conn->res = make_http_response(&serv, conn->req);
-                        printf("-----------------\n");
-                        print_http_request(stdout, conn->req);
-                        print_http_response(stdout, conn->res);
-                        printf("-----------------\n");
+
+                        if (serv.verbose) {
+                            printf("-----------------\n");
+                            print_http_request(stdout, conn->req);
+                            print_http_response(stdout, conn->res);
+                            printf("-----------------\n");
+                        }
                     }
 
                     int status = write_response(&serv, conn);
@@ -481,13 +488,15 @@ main(int argc, char **argv)
             }
         }
 
-        printf("\n\nSERVER STATE AFTER ITERATION:\n");
-        printf("pollfd_count: %zu\n", poll_queue.pollfd_count);
-        for (nfds_t i = 1; i < poll_queue.pollfd_count; i++) {
-            printf("Connection %zu:\n", i);
-            print_connection(poll_queue.pollfds + i,
-                             poll_queue.conns + i);
-            printf("------------\n");
+        if (serv.verbose) {
+            printf("\n\nSERVER STATE AFTER ITERATION:\n");
+            printf("pollfd_count: %zu\n", poll_queue.pollfd_count);
+            for (nfds_t i = 1; i < poll_queue.pollfd_count; i++) {
+                printf("Connection %zu:\n", i);
+                print_connection(poll_queue.pollfds + i,
+                                 poll_queue.conns + i);
+                printf("------------\n");
+            }
         }
     }
 

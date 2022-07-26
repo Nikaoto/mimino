@@ -54,6 +54,7 @@ typedef struct {
 } Connection;
 
 typedef struct {
+    int verbose;
     char *serve_path;
     char *index_path;
     char *port;
