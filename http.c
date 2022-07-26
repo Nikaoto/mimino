@@ -305,40 +305,43 @@ file_list_to_html(Buffer *buf, char *endpoint, File_List *fl)
     buf_append_str(buf, "</table></body></html>\r\n");
 }
 
+// Writes dirlisting headers to given 'head' Buffer and
+// the HTML to given 'body' Buffer.
+// 'dir' is the directory on the machine.
+// 'http_path' is the requested path extracted from the GET request.
 void
-buf_write_dirlisting_http(Buffer *buf, char *dir, char *http_path)
+write_dirlisting_http(
+    Buffer *head,
+    Buffer *body,
+    char *dir,
+    char *http_path)
 {
     // Get file list
     File_List *fl = ls(dir);
     if (!fl) {
         // Internal error
-        buf_append_str(buf, "HTTP/1.1 500\r\n");
+        buf_append_str(head, "HTTP/1.1 500\r\n");
         return;
     }
 
     // TODO: append headers using a function which can be used
     // both here and in make_http_response()
 
-    // Write the html into a separate buffer, so we can measure its length
-    Buffer *html_buf = new_buf(RESPONSE_BODY_BUF_INIT_SIZE);
-    file_list_to_html(html_buf, http_path, fl);
+    file_list_to_html(body, http_path, fl);
 
     char date_buf[DATE_LEN];
     to_rfc1123_date(date_buf, fl->dir_info->last_mod);
 
     buf_sprintf(
-        buf,
+        head,
         "HTTP/1.1 200\r\n"
         "Content-Type: text/html; charset=UTF-8\r\n"
         "Content-Length: %zu\r\n"
         "Last-Modified: %s\r\n\r\n",
-        html_buf->n_items,
+        body->n_items,
         date_buf);
 
-    buf_append_buf(buf, html_buf);
-
     free_file_list(fl);
-    free_buf(html_buf);
     return;
 }
 
@@ -347,17 +350,12 @@ make_http_response(Server *serv, Http_Request *req)
 {
     Defer_Queue dq = NULL_DEFER_QUEUE;
 
-
     Http_Response *res = xmalloc(sizeof(Http_Response));
     init_buf(&res->head, RESPONSE_HEADERS_BUF_INIT_SIZE);
     res->head_nbytes_sent = 0;
 
-    int is_head_request = !strcasecmp(req->method, "HEAD");
-    if (is_head_request) {
-        res->body.data = NULL;
-    } else {
-        init_buf(&res->body, RESPONSE_BODY_BUF_INIT_SIZE);
-    }
+    int is_head_request = !strcmp(req->method, "HEAD");
+    res->body.data = NULL;
     res->body_nbytes_sent = 0;
 
     res->file = NULL_FILE;
@@ -400,6 +398,7 @@ make_http_response(Server *serv, Http_Request *req)
 
         // Body
         if (!is_head_request) {
+            init_buf(&res->body, strlen(body) + 1);
             buf_append_str(&res->body, body);
         }
         return fulfill(&dq, res);
@@ -427,7 +426,7 @@ make_http_response(Server *serv, Http_Request *req)
             return fulfill(&dq, res);
         }
 
-        // TODO: the code below is ugly
+        // FIXME: the code below is ugly (especially the real_path stuff)
         // Look for the index file if configured
         int index_found = 0;
         if (serv->conf.index != NULL) {
@@ -450,8 +449,10 @@ make_http_response(Server *serv, Http_Request *req)
         }
 
         if (index_found == 0) {
-            buf_write_dirlisting_http(
-                &res->head, // TODO: fix this
+            init_buf(&res->body, RESPONSE_BODY_BUF_INIT_SIZE);
+            write_dirlisting_http(
+                &res->head,
+                &res->body,
                 real_path,
                 decoded_http_path);
             return fulfill(&dq, res);

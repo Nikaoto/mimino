@@ -11,12 +11,16 @@
 void
 print_file_info(FILE *f, File *file)
 {
-    // TODO: add other fields
     fprintf(f, "(File) {\n");
     fprintf(f, "  .name = %s,\n", file->name);
-    fprintf(f, "  .mode = %o,\n", file->mode);
-    fprintf(f, "  .size = %ld,\n", file->size);
+    fprintf(f, "  .fd = %d,\n", file->fd);
     fprintf(f, "  .last_mod = %ld,\n", file->last_mod);
+    fprintf(f, "  .mode = %o,\n", file->mode);
+    fprintf(f, "  .size = %zu,\n", file->size);
+    fprintf(f, "  .is_dir = %d,\n", file->is_dir);
+    fprintf(f, "  .is_link = %d,\n", file->is_link);
+    fprintf(f, "  .is_broken_link = %d,\n", file->is_broken_link);
+    fprintf(f, "  .is_null = %d,\n", file->is_null);
     fprintf(f, "}\n");
 }
 

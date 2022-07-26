@@ -594,7 +594,7 @@ do_conn_state(Server *serv, nfds_t idx)
             return 0;
 
         int status;
-        if (conn->res->file.is_null) {
+        if (conn->res->body.data) {
             status = write_body(conn);
         } else {
             status = write_file(conn);
