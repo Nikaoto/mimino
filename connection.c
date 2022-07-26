@@ -13,6 +13,7 @@ make_connection(int fd, struct pollfd *pfd)
         .res = NULL,
         .read_tries_left = 5,
         .write_tries_left = 5,
+        .keep_alive = 1,
     };
 }
 
@@ -44,6 +45,7 @@ print_connection(struct pollfd *pfd, Connection *conn)
     printf("  .status = %i,\n", conn->status);
     printf("  .read_tries_left = %d,\n", conn->read_tries_left);
     printf("  .write_tries_left = %d,\n", conn->write_tries_left);
+    printf("  .keep_alive = %d,\n", conn->keep_alive);
     printf("  .req = ");
     print_http_request(stdout, conn->req);
     printf("  .res = \n");

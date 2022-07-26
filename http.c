@@ -43,6 +43,8 @@ is_http_end(char *buf, size_t size)
 {
     size_t i = size - 1; // Last char index
 
+    // TODO: check for "\n\n" as well
+
     if (size < 4) return 0;
 
     // Ignore trailing null
@@ -205,6 +207,8 @@ parse_http_request(Http_Request *req)
             req->user_agent = xstrndup(hv, hv_len);
         } else if (!strncasecmp("Accept", hn, 6)) {
             req->accept = xstrndup(hv, hv_len);
+        } else if (!strncasecmp("Connection", hn, 10)) {
+            req->connection = xstrndup(hv, hv_len);
         }
     }
 

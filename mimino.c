@@ -181,6 +181,10 @@ accept_new_conn(int listen_sock)
 int
 read_request(Connection *conn)
 {
+    // TODO: instead of having a separate raw request string for
+    // each request, a static one and discard it after parsing the
+    // request (we can also parse it exactly here after reading it
+    // fully)
     int n = recv(conn->fd,
                  conn->req->buf->data + conn->req->buf->n_items,
                  conn->req->buf->n_alloc - conn->req->buf->n_items,
@@ -206,12 +210,13 @@ read_request(Connection *conn)
 
     conn->req->buf->n_items += n;
 
-    // Finished reading (or request buffer full)
-    if (n == 0 ||
-        conn->req->buf->n_items == conn->req->buf->n_alloc ||
-        is_http_end(conn->req->buf->data, conn->req->buf->n_items)) {
+    // Finished reading
+    if (n == 0 || is_http_end(conn->req->buf->data, conn->req->buf->n_items)) {
         return 1;
     }
+
+    // TODO: handle case when request is too large - send 413
+    // if (conn->req->buf->n_items == conn->req->buf->n_alloc)
 
     return 0;
 }
@@ -497,6 +502,11 @@ main(int argc, char **argv)
                         }
                     }
 
+                    // Set keep-alive
+                    if (!strcasecmp(conn->req->connection, "close")) {
+                        conn->keep_alive = 0;
+                    }
+
                     // Start writing
                     conn->status = CONN_STATUS_WRITING;
                     poll_queue.pollfds[fd_i].events = POLLOUT;
@@ -520,10 +530,18 @@ main(int argc, char **argv)
 
                 int status = write_response(&serv, conn);
                 if (status == 1) {
-                    // Close when done.
-                    // Even HTTP errors like 5xx or 4xx go here.
-                    free_connection_parts(conn);
-                    close_connection(&poll_queue, fd_i);
+                    if (!conn->keep_alive) {
+                        // Close when done.
+                        // Even HTTP errors like 5xx or 4xx go here.
+                        free_connection_parts(conn);
+                        close_connection(&poll_queue, fd_i);
+                    } else {
+                        // TODO: Recycle connection here
+                        //   * zero the connection
+                        //   * set its status to CONN_READING
+                        free_connection_parts(conn);
+                        close_connection(&poll_queue, fd_i);
+                    }
                 } else if (status == -1) {
                     // Fatal error, can't send data.
                     if (conn->res->error) {

@@ -18,7 +18,7 @@
 #define CONN_STATUS_WAITING   3
 #define CONN_STATUS_CLOSED    4
 
-#define MAX_REQUEST_SIZE       4096
+#define MAX_REQUEST_SIZE       1<<13
 #define RESPONSE_BUF_INIT_SIZE 4096
 
 typedef struct {
@@ -30,6 +30,7 @@ typedef struct {
     char *host;
     char *user_agent;
     char *accept;
+    char *connection;
     char *error;
 } Http_Request;
 
@@ -46,6 +47,7 @@ typedef struct {
     Http_Response *res;
     int read_tries_left;        // read_request tries left until force closing
     int write_tries_left;       // write_response tries left until force closing
+    int keep_alive;
     int status;
 } Connection;
 
