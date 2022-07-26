@@ -343,8 +343,8 @@ read_file_info(File *f, char *path)
 
     // Read data into *f
     *f = (File) {
-        .name = NULL,
         .fd = -1,
+        .name = f->name,
         .mode = sb.st_mode,
         .size = sb.st_size,
         .last_mod = sb.st_mtime,

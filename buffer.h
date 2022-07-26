@@ -14,7 +14,7 @@ typedef struct {
 } Buffer;
 
 Buffer* new_buf(size_t data_size);
-Buffer* init_buf(Buffer *b, size_t data_size)
+Buffer* init_buf(Buffer *b, size_t data_size);
 void print_buf_ascii(FILE *stream, Buffer *buf);
 void free_buf(Buffer*);
 void free_buf_parts(Buffer*);

@@ -44,7 +44,9 @@ typedef struct {
     size_t body_nbytes_sent;
 
     File file;
+    off_t file_offset;
     size_t file_nbytes_sent;
+    char *file_path;
 
     char *error;
 } Http_Response;

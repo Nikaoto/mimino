@@ -323,6 +323,8 @@ write_body(Connection *conn)
 int
 write_file(Connection *conn)
 {
+    Defer_Queue dq = NULL_DEFER_QUEUE;
+
     if (conn->res->file.is_null) {
         printf("Eror: File is null for conn with fd %d\n",
             conn->fd);
@@ -334,10 +336,22 @@ write_file(Connection *conn)
 
     // TODO: reuse file handle if partial file writes happen
     // Open file
-    FILE *file_handle = fopen(file_name, "r");
+    FILE *file_handle = fopen(conn->res->file_path, "r");
     if (file_handle == NULL) {
-        perror("fopen()");
+        perror("write_file(): Error on fopen()");
+        // TODO: handle various fopen() errors by switching errno here
         return W_FATAL_ERROR;
+    }
+    defer(&dq, fclose, file_handle);
+
+    // Seek
+    if (conn->res->file_offset != 0) {
+        int err = fseeko(file_handle, conn->res->file_offset, SEEK_SET);
+        if (err) {
+            perror("write_file(): Error on fseeko()");
+            // TODO: handle various fseeko() errors by switching errno here
+            return fulfill(&dq, W_FATAL_ERROR);
+        }
     }
 
     // Start reading the file and sending it.
@@ -346,24 +360,40 @@ write_file(Connection *conn)
         size_t bytes_read = fread(file_buf, 1, file_buf_len, file_handle);
         if (bytes_read == 0) {
             if (ferror(file_handle)) {
-                fprintf(stdout, "Error when fread()ing file %s\n", file_name);
+                conn->res->error = "write_file(): Error when fread()ing file";
+                // TODO: think of an appropriate error to return here
+                return fulfill(&dq, W_FATAL_ERROR);
             }
-            break;
+            return W_COMPLETE_WRITE;
         }
 
-        int status = send_buf(newsock, file_buf, bytes_read);
-        if (status == -1) {
-            return W_FATAL_ERROR;
+        int sent = send_buf(conn->fd, file_buf, bytes_read);
+        if (sent == -1) {
+            conn->res->error = "write_file(): send_buf() returned -1";
+            return fulfill(&dq, W_FATAL_ERROR);
         }
 
-        if (bytes_read < file_buf_len) {
-            // fread() will return 0, so if we break here, we avoid calling it
-            break;
+        conn->res->file_offset += sent;
+        conn->res->file_nbytes_sent += sent;
+
+        // Retry later if not sent fully
+        if ((size_t) sent < bytes_read) {
+            // This only happens when the client has a sudden
+            // disconnection. Retrying later gives the client
+            // some time to regain the connection.
+
+            if (conn->write_tries_left == 0) {
+                conn->res->error = "write_file(): Max write tries reached";
+                return fulfill(&dq, W_MAX_TRIES);
+            }
+            conn->write_tries_left--;
+
+            return fulfill(&dq, W_PARTIAL_WRITE);
         }
     };
 
-    fclose(file_handle);
-    fprintf(stdout, "Finished fread()ing\n");
+    // Unreachable
+    return fulfill(&dq, W_FATAL_ERROR);
 }
 
 void
@@ -569,8 +599,6 @@ do_conn_state(Server *serv, nfds_t idx)
         } else {
             status = write_file(conn);
         }
-
-        int status = write_body(conn);
         switch (status) {
         case W_PARTIAL_WRITE:
             return 0;

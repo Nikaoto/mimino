@@ -1,6 +1,8 @@
 # Makefile
 CC := cc
-CWARNS := -Wall -Wpedantic -Wextra -Wno-comments -Wno-implicit-fallthrough
+CWARNS := -Wall -Wpedantic -Wextra -Wno-comments \
+	-Wno-implicit-fallthrough -Wno-int-conversion \
+	-Wno-incompatible-pointer-types
 CFLAGS := $(CWARNS) -g
 FAST_CFLAGS := -O2 -Wall -Wpedantic -Wextra -g
 LINK := $(CC)

@@ -348,14 +348,16 @@ make_http_response(Server *serv, Http_Request *req)
     Defer_Queue dq = NULL_DEFER_QUEUE;
 
     Http_Response *res = xmalloc(sizeof(Http_Response));
-    res->head = init_buf(&res->head, RESPONSE_BUF_INIT_SIZE);
+    init_buf(&res->head, RESPONSE_BUF_INIT_SIZE);
     res->head_nbytes_sent = 0;
 
     res->body.data = NULL;
     res->body_nbytes_sent = 0;
 
     res->file = NULL_FILE;
+    res->file_offset = 0;
     res->file_nbytes_sent = 0;
+    res->file_path = NULL;
 
     res->error = NULL;
 
@@ -366,7 +368,8 @@ make_http_response(Server *serv, Http_Request *req)
 
     // Real path to the file on the server
     char *real_path = resolve_path(serv->conf.serve_path, decoded_http_path);
-    defer(&dq, free, real_path);
+    res->file_path = real_path;
+    // NOTE: Don't free real_path, it's used outside this function
 
     // Find out if we're listing a dir or serving a file
     res->file.name = get_base_name(real_path);
@@ -390,7 +393,7 @@ make_http_response(Server *serv, Http_Request *req)
         buf_append_str(&res->head, "\r\n");
 
         // Body
-        buf_append_str(res->body, body);
+        buf_append_str(&res->body, body);
         return fulfill(&dq, res);
     }
 
@@ -405,7 +408,7 @@ make_http_response(Server *serv, Http_Request *req)
         // Forward to path with trailing slash if it's missing
         if (decoded_http_path[strlen(decoded_http_path) - 1] != '/') {
             buf_sprintf(
-                &res->body,
+                &res->head,
                 "HTTP/1.1 301\r\n"
                 "Location: %s/\r\n",
                 decoded_http_path);
@@ -416,11 +419,12 @@ make_http_response(Server *serv, Http_Request *req)
             return fulfill(&dq, res);
         }
 
+        // TODO: the code below is ugly
         // Look for the index file if configured
         int index_found = 0;
         if (serv->conf.index != NULL) {
             char *index_real_path = resolve_path(real_path, serv->conf.index);
-            defer(&dq, free, index_real_path);
+            free(res->file.name);
             res->file.name = xstrdup(serv->conf.index);
             int index_read_result = read_file_info(
                 &(res->file),
@@ -429,13 +433,17 @@ make_http_response(Server *serv, Http_Request *req)
             // Index file found
             if (index_read_result == 1) {
                 index_found = 1;
+                free(real_path);
                 real_path = index_real_path;
+                res->file_path = index_real_path;
+            } else {
+                defer(&dq, free, index_real_path);
             }
         }
 
         if (index_found == 0) {
             buf_write_dirlisting_http(
-                &res->body,
+                &res->head, // TODO: fix this
                 real_path,
                 decoded_http_path);
             return fulfill(&dq, res);
@@ -515,12 +523,12 @@ print_http_response(FILE *stream, Http_Response *res)
 
     size_t n_items = 128;
 
-    if (res->buf->n_items < n_items) {
-        n_items = res->buf->n_items;
+    if (res->body.n_items < n_items) {
+        n_items = res->body.n_items;
     }
 
     for (size_t i = 0; i < n_items; i++) {
-        switch (res->buf->data[i]) {
+        switch (res->body.data[i]) {
         case '\n':
             fprintf(stream, "\\n\n");
             break;
@@ -531,12 +539,12 @@ print_http_response(FILE *stream, Http_Response *res)
             fprintf(stream, "\\r");
             break;
         default:
-            putc(res->buf->data[i], stream);
+            putc(res->body.data[i], stream);
             break;
         }
     }
 
-    if (res->buf->n_items > n_items) {
+    if (res->body.n_items > n_items) {
         fprintf(stream,
                 "\n[RESPONSE TRUNCATED]\n");
     }
@@ -546,9 +554,10 @@ void
 free_http_response(Http_Response *res)
 {
     if (!res) return;
-
-    free_buf(res->buf);
-    free_file_parts(&res->file);
+    if (res->file_path) {
+        free(res->file_path);
+        res->file_path = NULL;
+    }
     free(res);
     res = NULL;
 }
