@@ -1,13 +1,9 @@
 ## TODO
 
-- instead of `buf_append_file_contents` and sending the it whole,
-  read & send it bit by bit, marking the last read parts (will come
-  in handy when implementing partial responses)
-
+- error logging
+- debug logging
 - think of a way to enable both dirlisting and indexing (maybe `-d`
   flag to disable dirlistings?)
-
-- rename `CONN_STATUS_*` to `CONN_STATE_*`
 
 - add unit tests
   - for `parse_http_request`
@@ -35,19 +31,18 @@
   - make connections and pollfds arrays dynamic
   - `If-Modified-Since`
   - Support Range / partial content for streaming or resuming a download
-    - discard requests which have overlapping byte ranges
-    - discard requests with many small byte ranges
+    - discard requests with invalid byte ranges
     - code 206
     - read about If-Range header
   - Use sendfile() when possible
-  - Support HEAD requests
   - support ipv6 (just start listen()ing on one ipv6 socket)
   - add flags mentioned in ./readme.md
 
 - optimizaiton
   - use hashmap instead of lookup table for mime types
+  - use hashmap to parse headers instead of if-else chain
   - when serving a single non-directory file, don't resolve any paths
-  - implement caching (with infinite (?) TTL)
+  - caching (with infinite (?) TTL)
   - use readdir() instead of scandir() for faster dir scanning
     (~/src/darkhttpd/darkhttpd.c:1830:0)
   - Try on improvements from GoodSocket by jart:

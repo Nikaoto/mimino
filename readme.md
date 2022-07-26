@@ -1,5 +1,15 @@
 # mimino
 
+## Features (WIP)
+
+- Dirlisting
+- HEAD requests
+- Range/partial requests
+- Connection keep-alive and timeouts
+- Single-threaded using poll()
+- Supports both ipv4 and ipv6
+
+## Man page
 _WIP_
 
 After finished, the man page should look like this:
