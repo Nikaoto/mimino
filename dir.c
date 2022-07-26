@@ -19,6 +19,7 @@ print_file_info(FILE *f, File *file)
 }
 
 // Return a newly allocated string of p2 appended to p1.
+// Squeeze consecutive slashes together
 // Return NULL on error.
 char*
 resolve_path(char *p1, char *p2)
@@ -33,22 +34,38 @@ resolve_path(char *p1, char *p2)
     size_t l2 = strlen(p2);
     char *res = xmalloc(l1 + l2 + 1);
 
-    // Copy over first path
-    memcpy(res, p1, l1);
+    // Copy p1 onto res (excluding null term)
+    char *rp = res;
+    for (size_t i = 0; i < l1; i++) {
+        // Don't copy '/' if previous char was also '/'
+        if (i > 0 && p1[i-1] == '/' && p1[i] == '/')
+            continue;
+        *(rp++) = p1[i];
+    }
 
-    size_t ri = l1 - 1;
+    rp = res + l1 - 1;
 
-    // Remove extra '/'
-    if (res[ri] == '/' && *p2 == '/')
-        p2++;
+    // Avoid double '/' in between p1 and p2
+    if (*rp == '/') while (*p2 == '/') p2++;
 
-    // Add '/' if missing
-    if (res[ri] != '/' && *p2 != '/')
-        res[++ri] = '/';
+    // Add '/' if not present between p1 and p2
+    if (*rp != '/' && *p2 != '/')
+        *(++rp) = '/';
 
-    ri++;
+    // Make rp stand on char after '/'
+    rp++;
 
-    strcpy(res + ri, p2);
+    // Copy p2 onto res (including null term)
+    printf("res: %s\n", res);
+    printf("p2: %s\n", p2);
+    size_t l2_trimmed = strlen(p2);
+    for (size_t i = 0; i < l2_trimmed + 1; i++) {
+        // Don't copy '/' if previous char was also '/'
+        if (i > 0 && p2[i] == '/' && p2[i-1] == '/')
+            continue;
+        *(rp++) = p2[i];
+    }
+
     return res;
 }
 

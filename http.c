@@ -283,9 +283,9 @@ make_http_response(Server *serv, Http_Request *req)
     char *path = resolve_path(serv->serve_path, req->path);
     defer(&dq, free, path);
 
-    /* printf("serve path: %s\n", serv->serve_path); */
-    /* printf("request path: %s\n", req->path); */
-    /* printf("resolved path: %s\n", path); */
+    printf("serve path: %s\n", serv->serve_path);
+    printf("request path: %s\n", req->path);
+    printf("resolved path: %s\n", path);
 
     // Find out if we're listing a dir or serving a file
     char *base_name = get_base_name(path);
