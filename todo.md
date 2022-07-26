@@ -6,6 +6,9 @@
   - for `cleanup_path`
   - for `resolve_path`
 
+- bugs
+  - `# define _FILE_OFFSET_BITS 64 /* stat() files bigger than 2GB */`
+
 - security
   - timeout for lingering connections
   - something about changing the GID and UID of the UNIX-domain socket file
@@ -53,6 +56,9 @@
 - Run performance test with https://github.com/wg/wrk
 - Write mimino-forwarder
 - remove unnecessary logging & printfs
+- test download with 9GB file
+- test paused download with 9GB file
+- test video streaming
 
 ## Ideas
 
