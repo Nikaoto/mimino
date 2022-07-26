@@ -389,6 +389,8 @@ main(int argc, char **argv)
     if (serv.conf.chroot && serv.conf.chroot_dir == NULL) {
         serv.conf.chroot_dir = serv.conf.serve_path;
     }
+
+    // TODO: print server config here if verbose
     
     return 0;
 
