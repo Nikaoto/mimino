@@ -1,8 +1,12 @@
 ## TODO
+- add unit tests
+  - for `parse_args`
+  - for `decode_url`
+  - for `parse_http_request`
+  - for `buf_encode_url`
+  - for `cleanup_path`
+  - for `resolve_path`
 
-- faster dir scanning (?)
-  - use readdir() instead of scandir() ~/src/darkhttpd/darkhttpd.c:1830:0
-  
 - security
   - timeout for lingering connections
   - something about changing the GID and UID of the UNIX-domain socket file
@@ -20,14 +24,13 @@
   - Support HEAD requests(?)
   - support ipv6 (just start listen()ing on one ipv6 socket)
   - read about keep-alive. Is it worth implementing?
+  - add flags mentioned in ./readme.md
 
 - optimizaiton
   - use hashmap instead of lookup table for mime types
   - when serving a single non-directory file, don't resolve any paths
   - caching with infinite (?) TTL
-
-- configuration
-  - add flags mentioned in ./readme.md
+  - use readdir() instead of scandir() for faster dir scanning (~/src/darkhttpd/darkhttpd.c:1830:0)
 
 - Skim RFCs
   - [HTTP/1.1 - Syntax & Routing (main)](https://datatracker.ietf.org/doc/html/rfc7230)

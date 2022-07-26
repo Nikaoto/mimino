@@ -13,6 +13,7 @@ all: mimino
 OBJS_DIR=.objs
 OBJS= \
 	$(OBJS_DIR)/buffer.o  \
+	$(OBJS_DIR)/arg.o     \
 	$(OBJS_DIR)/dir.o     \
 	$(OBJS_DIR)/http.o    \
 	$(OBJS_DIR)/xmalloc.o \
