@@ -22,7 +22,7 @@ void buf_push(Buffer *b, char c);
 void buf_append(Buffer *b, char *src, size_t n);
 void buf_append_str(Buffer *b, char *str);
 int buf_sprintf(Buffer *buf, char *fmt, ...);
-void buf_append_href(Buffer *buf, File *f, char *req_path);
 int buf_append_file_contents(Buffer *buf, File *f, char *path);
+void buf_encode_url(Buffer *b, char *url);
 
 #endif

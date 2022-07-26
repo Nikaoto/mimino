@@ -123,15 +123,6 @@ buf_encode_url(Buffer *buf, char *url)
     }
 }
 
-void
-buf_append_href(Buffer *buf, File *f, char *req_path)
-{
-    buf_encode_url(buf, f->name);
-
-    // trailing '/' if given file is a directory
-    if (f->is_dir) buf_push(buf, '/');
-}
-
 // Return -1 on fopen error
 // Return 0 on read error
 // Return 1 on success

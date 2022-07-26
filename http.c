@@ -8,7 +8,7 @@
 #include "buffer.h"
 #include "defer.h"
 
-inline int
+int
 is_valid_http_path_char(char c)
 {
     if (is_alpha(c) || is_digit(c))
@@ -259,7 +259,8 @@ file_list_to_html(Buffer *buf, char *dir_path, File_List *fl)
 
         // Write file name
         buf_append_str(buf, "<tr><td><a href=\"");
-        buf_append_href(buf, f, dir_path);
+        buf_encode_url(buf, f->name);
+        if (f->is_dir) buf_push(buf, '/');
         buf_push(buf, '"');
         if (f->is_link && f->is_broken_link)
             buf_append_str(buf, " class=\"red\"");

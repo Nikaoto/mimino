@@ -67,7 +67,7 @@ free_connection_parts(Connection *conn)
     //free(conn);
 }
 
-inline Connection
+Connection
 new_connection(int fd, struct pollfd *pfd)
 {
     return (Connection) {
