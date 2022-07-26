@@ -126,9 +126,11 @@ buf_append_href(Buffer *buf, File *f, char *req_path)
 int
 buf_append_file_contents(Buffer *buf, File *f, char *path)
 {
-    if (buf->n_items + f->size > buf->n_alloc) {
+    if (f->size == 0)
+        return 1;
+
+    if (buf->n_items + f->size > buf->n_alloc)
         buf_grow(buf, f->size);
-    }
 
     FILE *fp = fopen(path, "r");
     if (!fp) {

@@ -326,7 +326,10 @@ make_http_response(Server *serv, Http_Request *req)
         defer(&dqfl, free_file_list, fl);
 
         // Write html into response buffer
-        buf_append_str(res->buf, "HTTP/1.1 200\r\n\r\n");
+        buf_append_str(res->buf, "HTTP/1.1 200\r\n");
+        buf_append_str(
+            res->buf,
+            "Content-Type: text/html; charset=UTF-8\r\n\r\n");
         file_list_to_html(res->buf, clean_http_path, fl);
         buf_append_str(res->buf, "\r\n");
 
@@ -347,6 +350,10 @@ make_http_response(Server *serv, Http_Request *req)
         buf_append_str(
             res->buf,
             "Content-Type: image/jpeg\r\n");
+    } else {
+        buf_append_str(
+            res->buf,
+            "Content-Type: text/plain; charset=UTF-8\r\n");
     }
 
     // Write Content-Length header
