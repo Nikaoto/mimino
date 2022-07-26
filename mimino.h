@@ -27,7 +27,7 @@ typedef struct {
     size_t n_alloc; // Number of bytes allocated for data
 } Buffer;
 
-#define BUFFER_GROWTH 256
+#define BUFFER_GROWTH 4096
 
 typedef struct {
     int fd;
