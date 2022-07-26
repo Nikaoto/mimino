@@ -10,6 +10,7 @@
 
 typedef struct {
     char *name;
+    time_t last_mod;
     mode_t mode;
     off_t size;
     int is_dir;
@@ -18,11 +19,12 @@ typedef struct {
     int is_null;
 } File;
 
-#define NULL_FILE (File) { "???", 0, 0, 0, 0, 0, 1 }
+#define NULL_FILE (File) { "???", 0, 0, 0, 0, 0, 0, 1 }
 
 typedef struct {
     File *files;
     size_t len;
+    File *dir_info;
 } File_List;
 
 File_List* ls(char *dir);

@@ -1,9 +1,5 @@
 /*
-  http server
-  Usage: ./mimino [dir/file] [port]
-  Serves specified directory 'dir' on 'port'.
-  Symlinks to files outside 'dir' are allowed.
-  Symlinks to directories outside 'dir' are forbidden.
+  Mimino - small http server
 */
 
 #include <stdio.h>

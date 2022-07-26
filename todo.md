@@ -18,6 +18,7 @@
   - put a verbose flag check before every log
 
 - features
+  - mobile css
   - `-d` flag for defaults (?)
     Equivalent to `-e -iindex.html,index.htm,index -s.html,.htm -p80`
   - table for mime types
@@ -27,7 +28,8 @@
   - Use sendfile() when possible
   - Support HEAD requests(?)
   - support ipv6 (just start listen()ing on one ipv6 socket)
-  - read about keep-alive. Is it worth implementing?
+  - Implement Keep-Alive
+  - Implement Last-Modified
   - add flags mentioned in ./readme.md
 
 - optimizaiton

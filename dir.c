@@ -11,10 +11,12 @@
 void
 print_file_info(FILE *f, File *file)
 {
+    // TODO: add other fields
     fprintf(f, "(File) {\n");
     fprintf(f, "  .name = %s,\n", file->name);
     fprintf(f, "  .mode = %o,\n", file->mode);
     fprintf(f, "  .size = %ld,\n", file->size);
+    fprintf(f, "  .last_mod = %ld,\n", file->last_mod);
     fprintf(f, "}\n");
 }
 
@@ -334,7 +336,6 @@ read_file_info(File *f, char *path, char *base_name)
     int err = lstat(path, &sb);
     if (err) {
         int saved_errno = errno;
-        // TODO: return a correct HTTP error response
         print_stat_error(saved_errno, path, 0);
         *f = NULL_FILE;
         return saved_errno == ENOENT ? -1 : -2;
@@ -346,6 +347,7 @@ read_file_info(File *f, char *path, char *base_name)
         .name = name,
         .mode = sb.st_mode,
         .size = sb.st_size,
+        .last_mod = sb.st_mtime,
         .is_dir = S_ISDIR(sb.st_mode),
         .is_link = S_ISLNK(sb.st_mode),
         .is_broken_link = 0,
@@ -364,6 +366,7 @@ read_file_info(File *f, char *path, char *base_name)
 
         f->is_dir = S_ISDIR(sb.st_mode);
         f->size = sb.st_size;
+        f->last_mod = sb.st_mtime;
     }
 
     //print_file_info(stdout, f);
@@ -404,6 +407,12 @@ ls(char *path)
     File_List *file_list = xmalloc(sizeof(File_List));
     file_list->len = (size_t) n;
     file_list->files = xmalloc(sizeof(File) * file_list->len);
+    file_list->dir_info = xmalloc(sizeof(File));
+
+    // Get directory info
+    char *dir_base_name = get_base_name(dir);
+    read_file_info(file_list->dir_info, dir, dir_base_name);
+    free(dir_base_name);
 
     // Write directory part of full_path
     char *full_path = xmalloc(sizeof(char) * dir_len + 256);
@@ -449,5 +458,6 @@ free_file_list(File_List *fl)
         free_file_parts(fl->files + i);
     }
     free(fl->files);
+    free(fl->dir_info);
     free(fl);
 }

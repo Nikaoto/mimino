@@ -1,12 +1,25 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <time.h>
 #include "http.h"
 #include "dir.h"
 #include "ascii.h"
 #include "xmalloc.h"
 #include "buffer.h"
 #include "defer.h"
+
+#define DATE_LEN 30
+char*
+to_rfc1123_date(char *dest, time_t tm) {
+    time_t t = tm;
+    if (strftime(dest, DATE_LEN,
+                 "%a, %d %b %Y %H:%M:%S GMT", gmtime(&t)) == 0) {
+        fprintf(stderr, "strftime() failed, aborting!\n");
+        exit(1);
+    }
+    return dest;
+}
 
 int
 is_valid_http_path_char(char c)
@@ -312,15 +325,29 @@ buf_write_dirlisting_http(Buffer *buf, char *dir, char *http_path)
         return;
     }
 
-    // Write html into response buffer
-    buf_append_str(
+    // TODO: append headers using a function which can be used
+    // both here and in make_http_response()
+
+    // Write the html into a separate buffer, so we can measure its length
+    Buffer *html_buf = new_buf(RESPONSE_BUF_INIT_SIZE);
+    file_list_to_html(html_buf, http_path, fl);
+
+    char date_buf[DATE_LEN];
+    to_rfc1123_date(date_buf, fl->dir_info->last_mod);
+
+    buf_sprintf(
         buf,
         "HTTP/1.1 200\r\n"
-        "Content-Type: text/html; charset=UTF-8\r\n\r\n");
-    file_list_to_html(buf, http_path, fl);
-    buf_append_str(buf, "\r\n");
+        "Content-Type: text/html; charset=UTF-8\r\n"
+        "Content-Length: %zu\r\n"
+        "Last-Modified: %s\r\n\r\n",
+        html_buf->n_items,
+        date_buf);
+
+    buf_append_buf(buf, html_buf);
 
     free_file_list(fl);
+    free_buf(html_buf);
     return;
 }
 
@@ -405,9 +432,19 @@ make_http_response(Server *serv, Http_Request *req)
 
     // Write Content-Length header
     buf_sprintf(res->buf,
-                "Content-Length: %ld\r\n\r\n",
+                "Content-Length: %ld\r\n",
                 file.size);
+
+    // Write Last-Modified header
+    char tmp[DATE_LEN * 10];
+    buf_sprintf(res->buf,
+                "Last-Modified: %s\r\n",
+                to_rfc1123_date(tmp, file.last_mod));
+
     //ascii_dump_buf(stdout, res.data, res.n_items);
+
+    // Last empty line before contents
+    buf_append_str(res->buf, "\r\n");
 
     // Write file contents
     int code = buf_append_file_contents(res->buf, &file, real_path);

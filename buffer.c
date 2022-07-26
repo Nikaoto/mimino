@@ -80,6 +80,20 @@ buf_append_str(Buffer *b, char *str)
 }
 
 // Does not copy the null terminator
+void
+buf_append_buf(Buffer *dest, Buffer *src)
+{
+    if (src->n_items == 0) return;
+
+    if (dest->n_items + src->n_items > dest->n_alloc) {
+        buf_grow(dest, src->n_items);
+    }
+
+    memcpy(dest->data + dest->n_items, src->data, src->n_items);
+    dest->n_items += src->n_items;
+}
+
+// Does not copy the null terminator
 int
 buf_sprintf(Buffer *buf, char *fmt, ...)
 {
