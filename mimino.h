@@ -55,6 +55,13 @@ typedef struct {
     size_t file_nbytes_sent;
     char *file_path;
 
+    /*
+      The difference between file_offset and range_start is that
+      file_offset tracks the point from which data transfer must
+      continue on each send cycle and thus changes each time a
+      chunk is sent, whereas range_start doesn't change and only
+      defines the initial offset from the start of the file.
+    */
     off_t range_start;
     off_t range_end;
 

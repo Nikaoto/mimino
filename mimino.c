@@ -295,11 +295,9 @@ write_body(Connection *conn)
 
     int sent = send_buf(
         conn->fd,
-        //conn->res->range_start +
-        conn->res->body.data + conn->res->body_nbytes_sent,
-        //conn->res->range_end - conn->res->body_nbytes_sent
-        // use this ^ instead of the thing below V
-        conn->res->body.n_items - conn->res->body_nbytes_sent);
+        conn->res->body.data +
+          (conn->res->range_start + conn->res->body_nbytes_sent),
+        conn->res->range_end - conn->res->body_nbytes_sent);
 
     // Fatal error, no use retrying
     if (sent == -1) {
@@ -310,18 +308,8 @@ write_body(Connection *conn)
     conn->res->body_nbytes_sent += sent;
 
     // Retry later if not sent fully
-    /*
-      TODO: the actual check for if the requested data was
-      fully sent or not should look like something below:
-
-      res->range_start = req->range_start_given ?
-          req->range_start : 0;
-      res->range_end = req->range_end_given ?
-          req->range_end : res->body.n_items;
-
-      if (res->range_start + conn->res->body_nbytes_sent < res->range_end) {
-     */
-    if (conn->res->body_nbytes_sent < conn->res->body.n_items) {
+    if (conn->res->range_start + conn->res->body_nbytes_sent <
+        conn->res->range_end) {
         if (conn->write_tries_left == 0) {
             conn->res->error = "write_body(): Max write tries reached";
             return W_MAX_TRIES;
@@ -347,6 +335,9 @@ write_file(Connection *conn)
 
     char file_buf[4096];
     size_t file_buf_len = sizeof(file_buf) * sizeof(char);
+    size_t nbytes_left = conn->res->range_end - conn->res->file_offset;
+    size_t nbytes_to_read = file_buf_len < nbytes_left ?
+        file_buf_len : nbytes_left;
 
     // TODO: reuse file handle if partial file writes happen
     // Open file
@@ -371,7 +362,11 @@ write_file(Connection *conn)
     // Start reading the file and sending it.
     // This works without loading the entire file into memory.
     while (1) {
-        size_t bytes_read = fread(file_buf, 1, file_buf_len, file_handle);
+        size_t bytes_read = fread(
+            file_buf,
+            1,
+            nbytes_to_read,
+            file_handle);
         if (bytes_read == 0) {
             if (ferror(file_handle)) {
                 conn->res->error = "write_file(): Error when fread()ing file";

@@ -480,10 +480,7 @@ make_http_response(Server *serv, Http_Request *req)
     res->file_nbytes_sent = 0;
     res->file_path = NULL;
 
-    res->range_start = req->range_start_given ?
-        req->range_start : 0;
-    res->range_end = req->range_end_given ?
-        req->range_end : (off_t) res->body.n_items;
+    int is_range_given = req->range_start_given || req->range_end_given;
 
     res->error = NULL;
 
@@ -561,7 +558,7 @@ make_http_response(Server *serv, Http_Request *req)
                 &(res->file),
                 index_real_path);
 
-            // Index file found
+            // Index file found, it will be served
             if (index_read_result == 1) {
                 index_found = 1;
                 free(real_path);
@@ -581,21 +578,40 @@ make_http_response(Server *serv, Http_Request *req)
                 decoded_http_path);
 
             // Check if the ranges given are invalid
-            if (!are_ranges_satisfiable(req, res->body.n_items)) {
-                // TODO: return range cannot be satisfied error
+            if (is_range_given &&
+                !are_ranges_satisfiable(req, res->body.n_items)) {
+                // TODO: return 'range cannot be satisfied' error
             }
+
+            // Set ranges
+            res->range_start = req->range_start_given ?
+                req->range_start : 0;
+            res->range_end = req->range_end_given ?
+                req->range_end : (off_t) res->body.n_items - 1;
+
             return fulfill(&dq, res);
         }
     }
 
     // We're serving a single file
-    // Check if the ranges given are invalid
-    if (!are_ranges_satisfiable(req, res->file.size)) {
-        // TODO: return range cannot be satisfied error
-    }
 
-    buf_append_str(&res->head, "HTTP/1.1 200\r\n");
-    buf_append_str(&res->head, "Accept-Ranges: bytes\r\n");
+    // Set ranges and file_offset
+    res->range_start = req->range_start_given ?
+        req->range_start : 0;
+    res->range_end = req->range_end_given ?
+        req->range_end : (off_t) res->file.size - 1;
+    res->file_offset = res->range_start;
+
+    if (is_range_given) {
+        if (!are_ranges_satisfiable(req, res->file.size)) {
+            // TODO: return 'range cannot be satisfied' error
+        }
+
+        buf_append_str(&res->head, "HTTP/1.1 206\r\n");
+    } else {
+        buf_append_str(&res->head, "HTTP/1.1 200\r\n");
+        buf_append_str(&res->head, "Accept-Ranges: bytes\r\n");
+    }
 
     // Keep-Alive
     /*buf_sprintf(
@@ -608,6 +624,18 @@ make_http_response(Server *serv, Http_Request *req)
     buf_sprintf(&res->head,
                 "Last-Modified: %s\r\n",
                 to_rfc1123_date(tmp, res->file.last_mod));
+
+    // Content-Range
+    if (is_range_given) {
+        buf_sprintf(&res->head,
+            "Content-Range: bytes %ld-%ld/%ld\r\n",
+            res->range_start, res->range_end, res->file.size);
+    }
+
+    // Content-Length
+    buf_sprintf(&res->head,
+                "Content-Length: %ld\r\n",
+                res->file.size);
 
     // Content-Type
     // TODO: replace this with a table lookup
@@ -627,16 +655,19 @@ make_http_response(Server *serv, Http_Request *req)
         buf_append_str(
             &res->head,
             "Content-Type: text/css\r\n");
-    } else {
+    } else if (strstr(res->file.name, ".txt")) {
         buf_append_str(
             &res->head,
             "Content-Type: text/plain; charset=UTF-8\r\n");
+    } else if (strstr(res->file.name, ".mp4")) {
+        buf_append_str(
+            &res->head,
+            "Content-Type: video/mp4\r\n");
+    } else {
+        buf_append_str(
+            &res->head,
+            "Content-Type: application/octet-stream; charset=UTF-8\r\n");
     }
-
-    // Content-Length
-    buf_sprintf(&res->head,
-                "Content-Length: %ld\r\n",
-                res->file.size);
 
     //ascii_dump_buf(stdout, res.data, res.n_items);
 
