@@ -51,6 +51,8 @@ typedef struct {
 
 typedef struct {
     int verbose;
+    int quiet;
+    char *index;
     char *serve_path;
     char *index_path;
     char *port;

@@ -313,6 +313,7 @@ close_connection(Poll_Queue *pq, nfds_t i)
 int
 main(int argc, char **argv)
 {
+    Server serv = {0};
     Argdef argdefs[5];
     memset(argdefs, 0, sizeof(argdefs));
     argdefs[0] = (Argdef) {
@@ -343,32 +344,33 @@ main(int argc, char **argv)
         .id = 4,
         .type = ARGDEF_TYPE_RAW,
     };
-    parse_args(argc, argv, 5, argdefs);
+
+    int succ = parse_args(argc, argv, 5, argdefs);
 
     return 0;
 
-    // Set dir/file path to serve
-    char *path = "./";
-    if (argc >= 2) {
-        path = argv[1];
+    if (!succ) {
+        fprintf(stderr, "Failed to parse arguments\n");
+        return 1;
     }
 
-    // Set port
-    char *port = "8080";
-    if (argc >= 3) {
-        port = argv[2];
+    // Set server configs
+    serv.verbose = argdefs[0].value.b;
+    serv.quiet = argdefs[1].value.b;
+    serv.port = argdefs[2].value.s;
+    if (argdefs[3].value.b) {
+        // TODO: parse this arg like a csv ('index.html,index.htm,index.txt'
+        // should work)
+        serv.index = argdefs[3].value.s ? argdefs[3].value.s : "index.html";
     }
+    serv.serve_path = argdefs[4].value.s ? argdefs[4].value.s : "./";
 
-    // TODO: fill with data here later (like CLI configs)
-    Server serv = {0};
-    serv.verbose = 0;
-    serv.serve_path = path;
-    serv.port = port;
+    return 0;
 
     // Init server
     char ip_str[INET6_ADDRSTRLEN];
     struct addrinfo server_addrinfo = {0};
-    int listen_sock = init_server(port, &server_addrinfo);
+    int listen_sock = init_server(serv.port, &server_addrinfo);
     if (listen_sock == -1) {
         fprintf(stderr, "init_server() failed.\n");
         return 1;
@@ -381,7 +383,7 @@ main(int argc, char **argv)
         perror("inet_ntop()");
         return 1;
     }
-    printf("Bound to %s:%s\n", ip_str, port);
+    printf("Bound to %s:%s\n", ip_str, serv.port);
 
     // Start listening
     int backlog = 10;

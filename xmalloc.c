@@ -45,3 +45,24 @@ xstrndup(char *src, size_t n)
     }
     return p;
 }
+
+
+/*
+int xvasprintf(char **ret, const char *format, va_list ap) {
+    int len = vasprintf(ret, format, ap);
+    if (ret == NULL || len == -1) {
+        fprintf(stderr, "vasprintf() failed, aborting!\n");
+    }
+    return len;
+}
+
+int xasprintf(char **ret, const char *format, ...) {
+    va_list va;
+
+    va_start(va, format);
+    int len = xvasprintf(ret, format, va);
+    va_end(va);
+
+    return len;
+}
+*/
