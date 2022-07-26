@@ -39,7 +39,7 @@ short_arg_match(char *arg, char *flag)
 {
     if (!arg) return 0;
     if (!flag) return 0;
-    
+
     return *arg == *flag;
 }
 

@@ -385,7 +385,7 @@ main(int argc, char **argv)
 
     // Print server configuration
     if (!serv.conf.quiet) print_server_config(&serv.conf);
-    
+
     // Init server
     serv.time_now = time(NULL);
     char ip_str[INET6_ADDRSTRLEN];
@@ -477,7 +477,7 @@ main(int argc, char **argv)
         for (nfds_t fd_i = 1; fd_i < serv.queue.pollfd_count; fd_i++) {
 
             printf("fd_i: %ld\n", fd_i);
-            printf("serv.queue.pollfd_count: %ld\n", serv.queue.pollfd_count); 
+            printf("serv.queue.pollfd_count: %ld\n", serv.queue.pollfd_count);
             Connection *conn = &(serv.queue.conns[fd_i]);
             struct pollfd *pfd = &(serv.queue.pollfds[fd_i]);
             printf("conn->fd: %d\n", conn->fd);
@@ -488,10 +488,10 @@ main(int argc, char **argv)
                 conn->last_active + TIMEOUT_SECS <= serv.time_now) {
                 fprintf(stdout, "Connection %ld timed out\n", fd_i);
                 free_connection_parts(conn);
-                printf("serv.queue.pollfd_count: %ld\n", serv.queue.pollfd_count); 
-                printf("close_conn\n"); 
+                printf("serv.queue.pollfd_count: %ld\n", serv.queue.pollfd_count);
+                printf("close_conn\n");
                 close_connection(&serv, fd_i);
-                printf("serv.queue.pollfd_count: %ld\n", serv.queue.pollfd_count); 
+                printf("serv.queue.pollfd_count: %ld\n", serv.queue.pollfd_count);
                 continue;
             }
 

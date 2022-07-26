@@ -166,7 +166,7 @@ test_parse_args()
 
         char *argv[] = {"./mimino", "--help"};
         esma_assert(parse_args(lenof(argv), argv, lenof(ad), &ad));
-        esma_assert(!ad[0].bvalue);        
+        esma_assert(!ad[0].bvalue);
     }
 
     esma_log_test("Handle one long boolean argument");
@@ -359,7 +359,7 @@ test_parse_args()
         esma_assert(argdefs[3].value == NULL);
 
         esma_assert(!cmpstr(argdefs[5].value, "dir/"));
-        argdef_undo_parse(argdefs, lenof(argdefs));        
+        argdef_undo_parse(argdefs, lenof(argdefs));
     }
 }
 
