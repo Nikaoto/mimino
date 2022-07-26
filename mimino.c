@@ -121,7 +121,7 @@ buf_sprintf(Buffer *buf, char *fmt, ...)
     va_end(fmtargs);
 
     // Exclude the null terminator at the end
-    buf->n_items--;
+    buf->n_items += len - 1;
 
     return 1;
 }
@@ -136,28 +136,28 @@ buf_append_file_contents(Buffer *buf, File *f, char *path)
         buf_grow(buf, f->size);
     }
 
-    FILE *file_handle = fopen(path, "r");
-    if (!file_handle) {
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
         perror("fopen()");
         return -1;
     }
     
     while (1) {
-        size_t bytes_read = fread(buf->data + buf->n_items, 1, f->size, file_handle);
+        size_t bytes_read = fread(buf->data + buf->n_items, 1, f->size, fp);
         buf->n_items += bytes_read;
         if (bytes_read < (size_t) f->size) {
-            if (ferror(file_handle)) {
+            if (ferror(fp)) {
                 fprintf(stdout, "Error when freading() file %s\n", path);
-                fclose(file_handle);
+                fclose(fp);
                 return 0;
             }
             // EOF
-            fclose(file_handle);
+            fclose(fp);
             return 1;
         }
     }
 
-    fclose(file_handle);
+    fclose(fp);
     return 1;
 }
 
@@ -418,9 +418,9 @@ write_response(Server *serv, Connection *conn)
 
     char *path = resolve_path(serv->serve_path, conn->req->path);
 
-    printf("serve path: %s\n", serv->serve_path);
-    printf("request path: %s\n", conn->req->path);
-    printf("resolved path: %s\n", path);
+    /* printf("serve path: %s\n", serv->serve_path); */
+    /* printf("request path: %s\n", conn->req->path); */
+    /* printf("resolved path: %s\n", path); */
 
     // TODO: if path is higher than serve_path, return 403
 
@@ -437,47 +437,80 @@ write_response(Server *serv, Connection *conn)
     File file;
     int read_result = read_file_info(&file, path, base_name);
     free(base_name);
+
+    // Fatal error
     if (read_result == -2) {
-        // Fatal error
         if (!buf_append_str(&res, "HTTP/1.1 500\r\n\r\n"))
             goto cleanup;
-    } else if (read_result == -1) {
-        // File not found
+        goto cleanup;
+    }
+
+    // File not found
+    if (read_result == -1) {
         if (!buf_append_str(&res, "HTTP/1.1 404\r\n\r\n"))
             goto cleanup;
         // TODO: buf_append_http_error_msg(404);
         if (!buf_append_str(&res, "Error 404: file not found\r\n"))
             goto cleanup;
-    } else {
-        if (!buf_append_str(&res, "HTTP/1.1 200\r\n\r\n"))
+
+        result = send_buf(conn->fd, res.data, res.n_items);
+        goto cleanup;
+    }
+
+    // Success (so far)
+    if (!buf_append_str(&res, "HTTP/1.1 200\r\n"))
+        goto cleanup;
+
+    // We're serving a dirlisting
+    if (file.is_dir) {
+        // Get file list
+        File_List *fl = ls(path);
+        if (!fl) goto cleanup;
+
+        if (!buf_append_str(&res, "\r\n"))
             goto cleanup;
 
-        if (file.is_dir) {
-            // Get file list
-            File_List *fl = ls(path);
-            if (!fl) goto cleanup;
-
-            // Write html into res
-            if (!file_list_to_html(conn->req->path, fl, &res)) {
-                free_file_list(fl);
-                free(fl);
-                goto cleanup;
-            }
+        // Write html into res
+        if (!file_list_to_html(conn->req->path, fl, &res)) {
             free_file_list(fl);
             free(fl);
-        } else {
-            int succ = buf_append_file_contents(&res, &file, path);
-            if (succ == -1 || succ == 0)
-                goto cleanup;
+            goto cleanup;
         }
 
         if (!buf_append_str(&res, "\r\n"))
             goto cleanup;
+
+        free_file_list(fl);
+        free(fl);
+
+        // Send res
+        result = send_buf(conn->fd, res.data, res.n_items);
+        goto cleanup;
+    }
+
+    // We're serving a file
+    printf("We're serving the file %s\n", file.name);
+    if (strstr(file.name, ".html")) {
+        buf_append_str(&res,
+                       "Content-Type: text/html; charset=UTF-8\r\n");
+    } else if (strstr(file.name, ".jpg")) {
+        buf_append_str(&res, "Content-Type: image/jpeg\r\n");
+    }
+    buf_sprintf(&res, "Content-Length: %ld\r\n\r\n", file.size);
+    //ascii_dump_buf(stdout, res.data, res.n_items);
+
+    int succ = buf_append_file_contents(&res, &file, path);
+    if (succ == -1 || succ == 0) {
+        fprintf(stderr,
+                "buf_append_file_contents failed with code %i\n",
+                succ);
+        goto cleanup;
     }
 
     // Send res
     result = send_buf(conn->fd, res.data, res.n_items);
 
+    //dump_data(stdout, res.data, res.n_items, DUMP_WIDTH);
 cleanup:
     if (path != serv->serve_path)
         free(path);
@@ -622,7 +655,6 @@ main(int argc, char **argv)
             case CONN_STATUS_READING:
                 if (conn->pollfd->revents & POLLIN) {
                     int status = read_request(conn);
-                    printf("read_request status %i\n", status);
                     if (status == -1) {
                         // Reading failed
                         close_connection(&poll_queue, fd_i);
@@ -647,7 +679,6 @@ main(int argc, char **argv)
             case CONN_STATUS_WRITING:
                 if (conn->pollfd->revents & POLLOUT) {
                     int status = write_response(&serv, conn);
-                    printf("write_response status %i\n", status);
                     if (status == 1) {
                         // Close when done.
                         // Even HTTP errors like 5xx or 4xx go here.

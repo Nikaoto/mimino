@@ -183,6 +183,10 @@ print_http_request(FILE *f, Http_Request *req)
         fprintf(f, "(Http_Request) NULL\n");
         return;
     }
+
+    fprintf(f, "%s %s\n", req->method, req->path);
+    return;
+
     fprintf(f, "(Http_Request) {\n");
     fprintf(f, "  .method = %s,\n", req->method);
     fprintf(f, "  .path = %s,\n", req->path);
