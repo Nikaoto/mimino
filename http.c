@@ -359,6 +359,16 @@ print_http_request(FILE *f, Http_Request *req)
     fprintf(f, "}\n");
 }
 
+int
+are_ranges_satisfiable(Http_Request* req, off_t max_range)
+{
+    return
+        (req->range_start_given && (req->range_start > max_range)) ||
+        (req->range_end_given && (req->range_end > max_range))     ||
+        (req->range_start_given && req->range_end_given &&
+         (req->range_start < req->range_end));
+}
+
 void
 file_list_to_html(Buffer *buf, char *endpoint, File_List *fl)
 {
@@ -571,10 +581,7 @@ make_http_response(Server *serv, Http_Request *req)
                 decoded_http_path);
 
             // Check if the ranges given are invalid
-            if ((req->range_start_given &&
-                 req->range_start > (off_t) res->body.n_items) ||
-                (req->range_end_given &&
-                 req->range_end > (off_t) res->body.n_items)) {
+            if (!are_ranges_satisfiable(req, res->body.n_items)) {
                 // TODO: return range cannot be satisfied error
             }
             return fulfill(&dq, res);
@@ -583,10 +590,7 @@ make_http_response(Server *serv, Http_Request *req)
 
     // We're serving a single file
     // Check if the ranges given are invalid
-    if ((req->range_start_given &&
-         req->range_start > res->file.size) ||
-        (req->range_end_given &&
-         req->range_end > res->file.size)) {
+    if (!are_ranges_satisfiable(req, res->file.size)) {
         // TODO: return range cannot be satisfied error
     }
 
