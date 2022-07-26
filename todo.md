@@ -1,6 +1,4 @@
 ## TODO
-- replace all malloc fails with xmalloc that crashes on failure
-- integrate writes with poll() loop (add max write tries)
 - support utf8 filenames in dirlisting (check if bits for utf8 set and render them as such)
 - use readdir() instead of scandir() ~/src/darkhttpd/darkhttpd.c:1830:0
 - timeout for lingering connections
