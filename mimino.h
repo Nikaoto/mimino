@@ -14,11 +14,11 @@
 #define HEXDUMP_DATA 1
 #define DUMP_WIDTH 10
 
-#define CONN_STATUS_READING   1
-#define CONN_STATUS_WRITING   2
-#define CONN_STATUS_WAITING   3
-#define CONN_STATUS_TIMED_OUT 4
-#define CONN_STATUS_CLOSED    5
+#define CONN_STATE_READING          1
+#define CONN_STATE_WRITING_HEADERS  2
+#define CONN_STATE_WRITING_BODY     3
+#define CONN_STATE_WRITING_FINISHED 4
+#define CONN_STATE_CLOSING          5
 
 #define MAX_REQUEST_SIZE       1<<12
 #define RESPONSE_BUF_INIT_SIZE 1<<12
@@ -38,7 +38,9 @@ typedef struct {
 
 typedef struct {
     Buffer *buf;
-    size_t nbytes_sent;
+    size_t buf_nbytes_sent;
+    File file; // Its content is sent after buf's content
+    size_t file_nbytes_sent;
     char *error;
 } Http_Response;
 
@@ -47,10 +49,10 @@ typedef struct {
     struct pollfd *pollfd;
     Http_Request *req;
     Http_Response *res;
-    int read_tries_left;        // read_request tries left until force closing
-    int write_tries_left;       // write_response tries left until force closing
+    int read_tries_left; // read_request tries left until force closing
+    int write_tries_left; // write_response tries left until force closing
     int keep_alive;
-    int status;
+    int state;
     time_t last_active;
 } Connection;
 

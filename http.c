@@ -349,11 +349,13 @@ Http_Response*
 make_http_response(Server *serv, Http_Request *req)
 {
     Defer_Queue dq = NULL_DEFER_QUEUE;
-    File file = NULL_FILE;
 
     Http_Response *res = xmalloc(sizeof(Http_Response));
+    //memset(res, 0, sizeof(*res));
     res->buf = new_buf(RESPONSE_BUF_INIT_SIZE);
-    res->nbytes_sent = 0;
+    res->file = NULL_FILE;
+    res->file_nbytes_sent = 0;
+    res->buf_nbytes_sent = 0;
     res->error = NULL;
 
     char *clean_http_path = cleanup_path(req->path);
@@ -365,17 +367,12 @@ make_http_response(Server *serv, Http_Request *req)
     char *real_path = resolve_path(serv->conf.serve_path, decoded_http_path);
     defer(&dq, free, real_path);
 
-    /* printf("serve path: %s\n", serv->serve_path); */
-    /* printf("request path: %s\n", req->path); */
-    /* printf("decoded request path: %s\n", decoded_http_path); */
-    /* printf("resolved path: %s\n", path); */
-
     // Find out if we're listing a dir or serving a file
     char *base_name = get_base_name(real_path);
-    int read_result = read_file_info(&file, real_path, base_name);
+    int read_result = read_file_info(&(res->file), real_path, base_name);
     free(base_name);
     // FIXME: possible free() call on file.name which might never get allocated
-    defer(&dq, (void (*)(void*))free_file_parts, &file);
+    defer(&dq, (void (*)(void*))free_file_parts, &(res->file));
 
     // File not found
     if (read_result == -1) {
@@ -406,7 +403,7 @@ make_http_response(Server *serv, Http_Request *req)
     }
 
     // We're serving a dirlisting
-    if (file.is_dir) {
+    if (res->file.is_dir) {
         // Forward to path with trailing slash if it's missing
         if (decoded_http_path[strlen(decoded_http_path) - 1] != '/') {
             buf_sprintf(
@@ -427,7 +424,7 @@ make_http_response(Server *serv, Http_Request *req)
             char *index_real_path = resolve_path(real_path, serv->conf.index);
             defer(&dq, free, index_real_path);
             int index_read_result = read_file_info(
-                &file,
+                &(res->file),
                 index_real_path,
                 serv->conf.index);
 
@@ -453,20 +450,27 @@ make_http_response(Server *serv, Http_Request *req)
         "Keep-Alive: timeout=%d\r\n",
         serv->conf.timeout_secs);*/
 
+    // Last-Modified
+    char tmp[DATE_LEN * 10];
+    buf_sprintf(res->buf,
+                "Last-Modified: %s\r\n",
+                to_rfc1123_date(tmp, res->file.last_mod));
+
     // Content-Type
-    if (strstr(file.name, ".html")) {
+    // TODO: replace this with a table lookup
+    if (strstr(res->file.name, ".html")) {
         buf_append_str(
             res->buf,
             "Content-Type: text/html; charset=UTF-8\r\n");
-    } else if (strstr(file.name, ".jpg")) {
+    } else if (strstr(res->file.name, ".jpg")) {
         buf_append_str(
             res->buf,
             "Content-Type: image/jpeg\r\n");
-    } else if (strstr(file.name, ".pdf")) {
+    } else if (strstr(res->file.name, ".pdf")) {
         buf_append_str(
             res->buf,
             "Content-Type: application/pdf\r\n");
-    } else if (strstr(file.name, ".css")) {
+    } else if (strstr(res->file.name, ".css")) {
         buf_append_str(
             res->buf,
             "Content-Type: text/css\r\n");
@@ -479,21 +483,15 @@ make_http_response(Server *serv, Http_Request *req)
     // Content-Length
     buf_sprintf(res->buf,
                 "Content-Length: %ld\r\n",
-                file.size);
-
-    // Last-Modified
-    char tmp[DATE_LEN * 10];
-    buf_sprintf(res->buf,
-                "Last-Modified: %s\r\n",
-                to_rfc1123_date(tmp, file.last_mod));
+                res->file.size);
 
     //ascii_dump_buf(stdout, res.data, res.n_items);
 
-    // Last empty line before content
+    // Last empty line after headers
     buf_append_str(res->buf, "\r\n");
 
     // Write file contents
-    int code = buf_append_file_contents(res->buf, &file, real_path);
+    int code = buf_append_file_contents(res->buf, &(res->file), real_path);
     if (code == -1 || code == 0) {
         // TODO: handle this failure better (with a 500 err code).
         fprintf(stderr,

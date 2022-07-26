@@ -8,7 +8,7 @@ make_connection(int fd, Server *s, nfds_t i)
     return (Connection) {
         .fd = fd,
         .pollfd = s->queue.pollfds + i,
-        .status = CONN_STATUS_READING,
+        .state = CONN_STATE_READING,
         .req = NULL,
         .res = NULL,
         .read_tries_left = 5,
@@ -44,7 +44,7 @@ print_connection(struct pollfd *pfd, Connection *conn)
 
     printf("(Connection) {\n");
     printf("  .fd = %i,\n", conn->fd);
-    printf("  .status = %i,\n", conn->status);
+    printf("  .state = %i,\n", conn->state);
     printf("  .read_tries_left = %d,\n", conn->read_tries_left);
     printf("  .write_tries_left = %d,\n", conn->write_tries_left);
     printf("  .keep_alive = %d,\n", conn->keep_alive);

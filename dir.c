@@ -345,6 +345,7 @@ read_file_info(File *f, char *path, char *base_name)
     char *name = xstrdup(base_name);
     *f = (File) {
         .name = name,
+        .fd = -1,
         .mode = sb.st_mode,
         .size = sb.st_size,
         .last_mod = sb.st_mtime,

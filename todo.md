@@ -1,6 +1,13 @@
 ## TODO
-- think of a way to enable both dirlisting and indexing (maybe `-d` flag to disable dirlistings?)
-- send back response of 'Keep-Alive: timeout=x'
+
+- instead of `buf_append_file_contents` and sending the it whole,
+  read & send it bit by bit, marking the last read parts (will come
+  in handy when implementing partial responses)
+
+- think of a way to enable both dirlisting and indexing (maybe `-d`
+  flag to disable dirlistings?)
+
+- rename `CONN_STATUS_*` to `CONN_STATE_*`
 
 - add unit tests
   - for `parse_http_request`
@@ -32,7 +39,7 @@
     - code 206
     - read about If-Range header
   - Use sendfile() when possible
-  - Support HEAD requests(?)
+  - Support HEAD requests
   - support ipv6 (just start listen()ing on one ipv6 socket)
   - add flags mentioned in ./readme.md
 

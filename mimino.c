@@ -55,6 +55,19 @@ print_server_config(Server_Config *conf)
     printf("}\n");
 }
 
+void
+print_server_state(Server *serv)
+{
+    printf("time_now: %ld\n", serv->time_now);
+    printf("pollfd_count: %zu\n", serv->queue.pollfd_count);
+    for (nfds_t i = 1; i < serv->queue.pollfd_count; i++) {
+        printf("Connection %zu:\n", i);
+        print_connection(serv->queue.pollfds + i,
+                         serv->queue.conns + i);
+        printf("------------\n");
+    }
+}
+
 int
 init_server(char *port, struct addrinfo *server_addrinfo)
 {
@@ -176,11 +189,11 @@ accept_new_conn(int listen_sock)
     return newsock;
 }
 
-#define RR_CLIENT_CLOSED 2 // client closed connection.
-#define RR_COMPLETE_READ 1 // done reading completely.
-#define RR_PARTIAL_READ  0 // an incomplete read happened.
-#define RR_FATAL_ERROR  -1 // fatal error or max retry reached.
-#define RR_REQ_TOO_BIG  -2 // when request is too big to handle.
+#define R_CLIENT_CLOSED 2 // client closed connection.
+#define R_COMPLETE_READ 1 // done reading completely.
+#define R_PARTIAL_READ  0 // an incomplete read happened.
+#define R_FATAL_ERROR  -1 // fatal error or max retry reached.
+#define R_REQ_TOO_BIG  -2 // when request is too big to handle.
 int
 read_request(Connection *conn)
 {
@@ -193,13 +206,13 @@ read_request(Connection *conn)
         if (errno == EWOULDBLOCK || errno == EAGAIN || errno == EINTR) {
             if (conn->read_tries_left == 0) {
                 fprintf(stderr, "Reached max read tries for conn\n");
-                return RR_FATAL_ERROR;
+                return R_FATAL_ERROR;
             }
             conn->read_tries_left--;
         }
         errno = saved_errno;
         perror("recv()");
-        return RR_PARTIAL_READ;
+        return R_PARTIAL_READ;
     }
 
     //dump_data(stdout,
@@ -211,52 +224,71 @@ read_request(Connection *conn)
 
     // Finished reading
     if (is_http_end(conn->req->buf->data, conn->req->buf->n_items))
-        return RR_COMPLETE_READ;
+        return R_COMPLETE_READ;
     if (n == 0) {
-        if (conn->req->buf->n_items == 0) return RR_CLIENT_CLOSED;
-        else return RR_COMPLETE_READ;
+        if (conn->req->buf->n_items == 0) return R_CLIENT_CLOSED;
+        else return R_COMPLETE_READ;
     }
 
     // Not finished yet, but req buffer full
     if (conn->req->buf->n_items == conn->req->buf->n_alloc)
-        return RR_REQ_TOO_BIG;
+        return R_REQ_TOO_BIG;
 
-    return RR_PARTIAL_READ;
+
+    // TODO: maybe decrease read_tries_left here? imagine that a
+    // client sends 10 bytes with 1 second delays (can happen
+    // with slow networks), should we block them if they fail to
+    // send their request in more than 5 tries? Otherwise, a
+    // person with a larger memory than the server can simply
+    // create 1000s of very slow requests and clog up the server.
+    // Solution to this would be to have a
+    // conn->reading_abs_timeout_ms which is set to 30000, which
+    // means the client has 30 seconds to make the request in
+    // total.
+    // TODO: Could be smart to have conn->writing_abs_timeout_ms
+    // as well.
+    return R_PARTIAL_READ;
 }
 
-// Return 1 if done writing completely.
-// Return 0 if an incomplete write happened.
-// Return -1 on fatal error or max retry reached.
+#define W_MAX_TRIES      -2
+#define W_FATAL_ERROR    -1
+#define W_PARTIAL_WRITE   0
+#define W_COMPLETE_WRITE  1
 int
-write_response(Connection *conn)
+write_headers(Connection *conn)
 {
     int sent = send_buf(
         conn->fd,
-        conn->res->buf->data + conn->res->nbytes_sent,
-        conn->res->buf->n_items);
+        conn->res->buf->data + conn->res->buf_nbytes_sent,
+        conn->res->buf->n_items - conn->res->buf_nbytes_sent);
 
     // Fatal error, no use retrying
     if (sent == -1) {
         conn->res->error = "Other error";
-        return -1;
+        return W_FATAL_ERROR;
     }
 
-    conn->res->nbytes_sent += sent;
+    conn->res->buf_nbytes_sent += sent;
 
     // Retry later if not sent fully
-    if (conn->res->nbytes_sent < conn->res->buf->n_items) {
+    if (conn->res->buf_nbytes_sent < conn->res->buf->n_items) {
         if (conn->write_tries_left == 0) {
             conn->res->error = "Max write tries reached";
-            return -1;
+            return W_MAX_TRIES;
         }
         conn->write_tries_left--;
 
-        return 0;
+        return W_PARTIAL_WRITE;
     }
 
-    // Fully sent
-    //dump_data(stdout, res.data, res.n_items, DUMP_WIDTH);
-    return 1;
+    return W_COMPLETE_WRITE;
+}
+
+int
+write_body(Connection *conn)
+{
+    // TODO:
+    return W_FATAL_ERROR;
 }
 
 void
@@ -273,7 +305,6 @@ close_connection(Server *s, nfds_t i)
     }
 
     s->queue.conns[i].fd = -1;
-    s->queue.conns[i].status = CONN_STATUS_CLOSED;
     s->queue.pollfds[i].fd = -1;
     s->queue.pollfds[i].events = 0;
     s->queue.pollfds[i].revents = 0;
@@ -293,7 +324,6 @@ recycle_connection(Server *s, nfds_t i)
     free_http_request(s->queue.conns[i].req);
     free_http_response(s->queue.conns[i].res);
 
-    s->queue.conns[i].status = CONN_STATUS_READING;
     s->queue.conns[i].req = NULL;
     s->queue.conns[i].res = NULL;
     s->queue.conns[i].read_tries_left = 5;
@@ -303,6 +333,205 @@ recycle_connection(Server *s, nfds_t i)
 
     s->queue.pollfds[i].events = POLLIN;
     s->queue.pollfds[i].revents = 0;
+}
+
+// TODO: don't take pollfd pointer, reference it from conn->
+void
+set_conn_state(struct pollfd *pfd, Connection *conn, int state)
+{
+    conn->state = state;
+
+    switch (state) {
+    case CONN_STATE_READING:
+        pfd->events = POLLIN;
+        break;
+    case CONN_STATE_WRITING_HEADERS:
+    case CONN_STATE_WRITING_BODY:
+        pfd->events = POLLOUT;
+        break;
+    case CONN_STATE_WRITING_FINISHED:
+    case CONN_STATE_CLOSING:
+        pfd->events = 0;
+        break;
+    }
+}
+
+// State machine for handling connections
+int
+do_conn_state(Server *serv, nfds_t idx)
+{
+    Connection *conn = &(serv->queue.conns[idx]);
+    struct pollfd *pfd = &(serv->queue.pollfds[idx]);
+
+    switch (conn->state) {
+
+    case CONN_STATE_READING: {
+        if (!(pfd->revents & POLLIN))
+            return 0;
+
+        // Allocate memory for request struct
+        if (conn->req == NULL) {
+            conn->req = xmalloc(sizeof(*(conn->req)));
+            memset(conn->req, 0, sizeof(*(conn->req)));
+            // We won't grow this buffer
+            conn->req->buf = new_buf(MAX_REQUEST_SIZE);
+        }
+
+        int status = read_request(conn);
+        switch (status) {
+
+        case R_PARTIAL_READ:
+            conn->last_active = serv->time_now;
+            break;
+
+        case R_FATAL_ERROR:
+        case R_CLIENT_CLOSED:
+            set_conn_state(pfd, conn, CONN_STATE_CLOSING);
+            do_conn_state(serv, idx);
+            break;
+
+        case R_REQ_TOO_BIG:
+            // TODO: send 413 error instead
+            set_conn_state(pfd, conn, CONN_STATE_CLOSING);
+            do_conn_state(serv, idx);
+            break;
+
+        case R_COMPLETE_READ:
+            conn->last_active = serv->time_now;
+
+            // Reading done, parse request
+            // TODO: turn this into a separate state
+            parse_http_request(conn->req);
+
+            // Parse error
+            if (conn->req->error) {
+                fprintf(stdout,
+                        "Parse error: %s\n",
+                        conn->req->error);
+                fprintf(stderr,
+                        "Request buffer dump:\n");
+                print_buf_ascii(stderr, conn->req->buf);
+
+                // Close the connection if we didn't manage
+                // to parse the essential headers
+                if (!conn->req->method ||
+                    !conn->req->path ||
+                    !conn->req->host) {
+                    set_conn_state(pfd, conn, CONN_STATE_CLOSING);
+                    do_conn_state(serv, idx);
+                    return 1;
+                }
+            }
+
+            // Set keep-alive
+            if (conn->req->connection &&
+                !strcasecmp(conn->req->connection, "close")) {
+                conn->keep_alive = 0;
+            }
+
+            // Start writing
+            set_conn_state(pfd, conn, CONN_STATE_WRITING_HEADERS);
+            break;
+        }
+        break;
+    }
+
+    case CONN_STATE_WRITING_HEADERS: {
+        if (!(pfd->revents & POLLOUT))
+            return 0;
+
+        // Generate response
+        if (!conn->res) {
+            conn->last_active = serv->time_now;
+            conn->res = make_http_response(serv, conn->req);
+
+            if (serv->conf.verbose) {
+                printf("-----------------\n");
+                print_http_request(stdout, conn->req);
+                print_http_response(stdout, conn->res);
+                printf("-----------------\n");
+            }
+        }
+
+        int status = write_headers(conn);
+        switch (status) {
+        case W_PARTIAL_WRITE:
+            conn->last_active = serv->time_now;
+            return 0;
+
+        case W_MAX_TRIES:
+            // TODO: print error stuff
+            set_conn_state(pfd, conn, CONN_STATE_CLOSING);
+            do_conn_state(serv, idx);
+            break;
+
+        case W_FATAL_ERROR:
+            // TODO: print error stuff
+            set_conn_state(pfd, conn, CONN_STATE_CLOSING);
+            do_conn_state(serv, idx);
+            break;
+
+        case W_COMPLETE_WRITE:
+            if (!strcmp(conn->req->method, "HEAD")) {
+                set_conn_state(pfd, conn, CONN_STATE_WRITING_FINISHED);
+                do_conn_state(serv, idx);
+            } else {
+                set_conn_state(pfd, conn, CONN_STATE_WRITING_BODY);
+                do_conn_state(serv, idx);
+            }
+            break;
+        }
+    }
+
+    case CONN_STATE_WRITING_BODY: {
+        int status = write_body(conn);
+        switch (status) {
+        case W_PARTIAL_WRITE:
+            return 0;
+
+        case W_MAX_TRIES:
+            // TODO: print error stuff
+            set_conn_state(pfd, conn, CONN_STATE_CLOSING);
+            do_conn_state(serv, idx);
+            break;
+
+        case W_FATAL_ERROR:
+            // TODO: print error stuff
+            /*if (conn->res->error) {
+                fprintf(stdout,
+                        "Error when writing response: %s\n",
+                        conn->req->error);
+            }*/
+            set_conn_state(pfd, conn, CONN_STATE_CLOSING);
+            do_conn_state(serv, idx);
+            break;
+
+        case W_COMPLETE_WRITE:
+            set_conn_state(pfd, conn, CONN_STATE_WRITING_FINISHED);
+            do_conn_state(serv, idx);
+            break;
+        }
+        break;
+    }
+
+    case CONN_STATE_WRITING_FINISHED: {
+        if (conn->keep_alive) {
+            recycle_connection(serv, idx);
+            set_conn_state(pfd, conn, CONN_STATE_READING);
+        } else {
+            set_conn_state(pfd, conn, CONN_STATE_CLOSING);
+            do_conn_state(serv, idx);
+        }
+        break;
+    }
+
+    case CONN_STATE_CLOSING:
+        free_connection_parts(conn);
+        close_connection(serv, idx);
+        break;
+    }
+
+    return -1;
 }
 
 int
@@ -442,15 +671,7 @@ main(int argc, char **argv)
 
         if (serv.conf.verbose) {
             printf("\n\nSERVER STATE BEFORE ITERATION:\n");
-            printf("poll() returned nfds: %d\n", nfds);
-            printf("time_now: %ld\n", serv.time_now);
-            printf("pollfd_count: %zu\n", serv.queue.pollfd_count);
-            for (nfds_t i = 1; i < serv.queue.pollfd_count; i++) {
-                printf("Connection %zu:\n", i);
-                print_connection(serv.queue.pollfds + i,
-                                 serv.queue.conns + i);
-                printf("------------\n");
-            }
+            print_server_state(&serv);
         }
 
         // Accept new connection
@@ -481,152 +702,24 @@ main(int argc, char **argv)
             }
         }
 
-        // Iterate poll queue (starts from 1, skipping listen_sock)
-        for (nfds_t fd_i = 1; fd_i < serv.queue.pollfd_count; fd_i++) {
-            Connection *conn = &(serv.queue.conns[fd_i]);
-            struct pollfd *pfd = &(serv.queue.pollfds[fd_i]);
+        // Iterate conn/pollfd queue (starts from 1, skipping listen_sock)
+        for (nfds_t idx = 1; idx < serv.queue.pollfd_count; idx++) {
+            Connection *conn = &(serv.queue.conns[idx]);
 
             // Drop connection if it timed out
-            if ((conn->status != CONN_STATUS_CLOSED) &&
+            if ((conn->state != CONN_STATE_CLOSING) &&
                 (conn->last_active + serv.conf.timeout_secs
                    <= serv.time_now)) {
-                fprintf(stdout, "Connection %ld timed out\n", fd_i);
-                free_connection_parts(conn);
-                close_connection(&serv, fd_i);
-                continue;
+                fprintf(stdout, "Connection %ld timed out\n", idx);
+                conn->state = CONN_STATE_CLOSING;
             }
 
-            switch (conn->status) {
-            case CONN_STATUS_READING: {
-                if (!(pfd->revents & POLLIN))
-                    continue;
-
-                // Allocate memory for request struct
-                if (conn->req == NULL) {
-                    conn->req = xmalloc(sizeof(*(conn->req)));
-                    memset(conn->req, 0, sizeof(*(conn->req)));
-                    // We won't grow this buffer
-                    conn->req->buf = new_buf(MAX_REQUEST_SIZE);
-                }
-
-                int status = read_request(conn);
-                switch (status) {
-
-                case RR_PARTIAL_READ:
-                    conn->last_active = serv.time_now;
-                    break;
-
-                case RR_FATAL_ERROR:
-                case RR_CLIENT_CLOSED:
-                    free_connection_parts(conn);
-                    close_connection(&serv, fd_i);
-                    break;
-
-                case RR_REQ_TOO_BIG:
-                    // TODO: send 413 error instead
-                    free_connection_parts(conn);
-                    close_connection(&serv, fd_i);
-                    break;
-
-                case RR_COMPLETE_READ:
-                    conn->last_active = serv.time_now;
-
-                    // Reading done, parse request
-                    parse_http_request(conn->req);
-                    //print_http_request(stderr, req);
-
-                    // Parse error
-                    if (conn->req->error) {
-                        fprintf(stdout,
-                                "Parse error: %s\n",
-                                conn->req->error);
-                        fprintf(stderr,
-                                "Request buffer dump:\n");
-                        print_buf_ascii(stderr, conn->req->buf);
-
-                        // Close the connection if we didn't manage
-                        // to parse the essential headers
-                        if (!conn->req->method ||
-                            !conn->req->path ||
-                            !conn->req->host) {
-                            free_connection_parts(conn);
-                            close_connection(&serv, fd_i);
-                            continue;
-                        }
-                    }
-
-                    // Set keep-alive
-                    if (conn->req->connection &&
-                        !strcasecmp(conn->req->connection, "close")) {
-                        conn->keep_alive = 0;
-                    }
-
-                    // Start writing
-                    conn->status = CONN_STATUS_WRITING;
-                    pfd->events  = POLLOUT;
-                    break;
-                }
-                break;
-            }
-            case CONN_STATUS_WRITING: {
-                if (!(pfd->revents & POLLOUT))
-                    continue;
-
-                if (!conn->res) {
-                    conn->last_active = serv.time_now;
-                    conn->res = make_http_response(&serv, conn->req);
-
-                    if (serv.conf.verbose) {
-                        printf("-----------------\n");
-                        print_http_request(stdout, conn->req);
-                        print_http_response(stdout, conn->res);
-                        printf("-----------------\n");
-                    }
-                }
-
-                int status = write_response(conn);
-                if (status == 1) {
-                    conn->last_active = serv.time_now;
-
-                    if (conn->keep_alive) {
-                        recycle_connection(&serv, fd_i);
-                        continue;
-                    }
-
-                    // Close when done.
-                    // Even HTTP errors like 5xx or 4xx go here.
-                    free_connection_parts(conn);
-                    close_connection(&serv, fd_i);
-                } else if (status == -1) {
-                    // Fatal error, can't send data.
-                    if (conn->res->error) {
-                        fprintf(stdout,
-                                "Error when writing response: %s\n",
-                                conn->req->error);
-                        free_connection_parts(conn);
-                        close_connection(&serv, fd_i);
-                    }
-                }
-                break;
-            }
-            case CONN_STATUS_WAITING:
-                break;
-            case CONN_STATUS_CLOSED:
-                fprintf(stderr, "WARN: connection not closed\n");
-                close_connection(&serv, fd_i);
-                break;
-            }
+            do_conn_state(&serv, idx);
         }
 
         if (serv.conf.verbose) {
             printf("\n\nSERVER STATE AFTER ITERATION:\n");
-            printf("pollfd_count: %zu\n", serv.queue.pollfd_count);
-            for (nfds_t i = 1; i < serv.queue.pollfd_count; i++) {
-                printf("Connection %zu:\n", i);
-                print_connection(serv.queue.pollfds + i,
-                                 serv.queue.conns + i);
-                printf("------------\n");
-            }
+            print_server_state(&serv);
         }
     }
 
@@ -719,6 +812,14 @@ send_buf(int sock, char *buf, size_t len)
     }
 
     return nbytes_sent;
+}
+
+// TODO: use sendfile() if available
+// TODO: reuse the fd on the file struct
+int
+send_file(int sock, File *f, size_t len)
+{
+    return -1;
 }
 
 void
