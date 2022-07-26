@@ -314,63 +314,88 @@ int
 main(int argc, char **argv)
 {
     Server serv = {0};
-    Argdef argdefs[5];
+    Argdef argdefs[9];
     memset(argdefs, 0, sizeof(argdefs));
     argdefs[0] = (Argdef) {
-        .id = 0,
         .short_arg = 'v',
         .long_arg = "verbose",
         .type = ARGDEF_TYPE_BOOL,
     };
     argdefs[1] = (Argdef) {
-        .id = 1,
         .short_arg = 'q',
         .long_arg = "quiet",
         .type = ARGDEF_TYPE_BOOL,
     };
     argdefs[2] = (Argdef) {
-        .id = 2,
+        .short_arg = 'u',
+        .long_arg = "unsafe",
+        .type = ARGDEF_TYPE_BOOL,
+    };
+    argdefs[3] = (Argdef) {
+        .short_arg = 'r',
+        .long_arg = "chroot",
+        .type = ARGDEF_TYPE_STRING,
+    };
+    argdefs[4] = (Argdef) {
+        .short_arg = 'e',
+        .long_arg = "error-files",
+        .type = ARGDEF_TYPE_BOOL,
+    };
+    argdefs[5] = (Argdef) {
+        .short_arg = 's',
+        .long_arg = "suffix",
+        .type = ARGDEF_TYPE_STRING,
+    };
+    argdefs[6] = (Argdef) {
         .short_arg = 'p',
         .long_arg = "port",
         .type = ARGDEF_TYPE_STRING,
     };
-    argdefs[3] = (Argdef) {
-        .id = 3,
+    argdefs[7] = (Argdef) {
         .short_arg = 'i',
         .long_arg = "index",
         .type = ARGDEF_TYPE_STRING,
     };
-    argdefs[4] = (Argdef) { // file/directory to serve
-        .id = 4,
+    argdefs[8] = (Argdef) {
+        // file/directory to serve
         .type = ARGDEF_TYPE_RAW,
     };
 
-    int succ = parse_args(argc, argv, 5, argdefs);
-
-    return 0;
-
-    if (!succ) {
-        fprintf(stderr, "Failed to parse arguments\n");
+    int parse_ok = parse_args(argc, argv, 9, argdefs);
+    if (!parse_ok) {
+        printf("Error parsing arguments\n");
         return 1;
     }
 
     // Set server configs
-    serv.verbose = argdefs[0].value.b;
-    serv.quiet = argdefs[1].value.b;
-    serv.port = argdefs[2].value.s;
-    if (argdefs[3].value.b) {
-        // TODO: parse this arg like a csv ('index.html,index.htm,index.txt'
-        // should work)
-        serv.index = argdefs[3].value.s ? argdefs[3].value.s : "index.html";
-    }
-    serv.serve_path = argdefs[4].value.s ? argdefs[4].value.s : "./";
+    serv.conf = (Server_Config) {
+        .verbose = argdefs[0].bvalue,
+        .quiet = argdefs[1].bvalue,
+        .unsafe = argdefs[2].bvalue && !argdefs[3].bvalue,
+        .chroot = argdefs[3].bvalue,
+        .chroot_dir = argdefs[3].value,
+        .serve_error_files = argdefs[4].bvalue,
+        .port = argdefs[6].value ? argdefs[6].value : "8080",
+        .suffix = argdefs[5].bvalue ?
+            (argdefs[5].value ? argdefs[5].value : ".html")
+            : NULL,
+        .index = argdefs[7].bvalue ?
+            (argdefs[7].value ? argdefs[7].value : "index.html")
+            : NULL,
+        .serve_path = argdefs[8].value ? argdefs[8].value : "./",
+    };
 
+    // Set chroot directory
+    if (serv.conf.chroot && serv.conf.chroot_dir == NULL) {
+        serv.conf.chroot_dir = serv.conf.serve_path;
+    }
+    
     return 0;
 
     // Init server
     char ip_str[INET6_ADDRSTRLEN];
     struct addrinfo server_addrinfo = {0};
-    int listen_sock = init_server(serv.port, &server_addrinfo);
+    int listen_sock = init_server(serv.conf.port, &server_addrinfo);
     if (listen_sock == -1) {
         fprintf(stderr, "init_server() failed.\n");
         return 1;
@@ -383,7 +408,7 @@ main(int argc, char **argv)
         perror("inet_ntop()");
         return 1;
     }
-    printf("Bound to %s:%s\n", ip_str, serv.port);
+    printf("Bound to %s:%s\n", ip_str, serv.conf.port);
 
     // Start listening
     int backlog = 10;

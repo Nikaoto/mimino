@@ -169,7 +169,6 @@ print_argdef(Argdef *a)
     }
 
     printf("(Argdef) {\n");
-    printf("  .id = %i\n", a->id);
     printf("  .short_arg = %c\n", a->short_arg);
     printf("  .long_arg = %s\n", a->long_arg);
     printf("  .err = %s\n", a->err);

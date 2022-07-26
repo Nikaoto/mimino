@@ -3,7 +3,6 @@
 
 // Tells parse_args() which arguments we want to parse
 typedef struct {
-    int id;         // for quick lookup & comparison(?)
     char short_arg; // with single dash
     char *long_arg; // with double dash
     char *err;      // returned error message

@@ -199,37 +199,31 @@ test_parse_args()
     Argdef argdefs[6];
     memset(argdefs, 0, sizeof(argdefs));
     argdefs[0] = (Argdef) {
-        .id = 0,
         .short_arg = 'v',
         .long_arg = "verbose",
         .type = ARGDEF_TYPE_BOOL,
     };
     argdefs[1] = (Argdef) {
-        .id = 1,
         .short_arg = 'u',
         .long_arg = "unsafe",
         .type = ARGDEF_TYPE_BOOL,
     };
     argdefs[2] = (Argdef) {
-        .id = 2,
         .short_arg = 'p',
         .long_arg = "port",
         .type = ARGDEF_TYPE_STRING,
     };
     argdefs[3] = (Argdef) {
-        .id = 3,
         .short_arg = 'i',
         .long_arg = "index",
         .type = ARGDEF_TYPE_STRING,
     };
     argdefs[4] = (Argdef) {
-        .id = 4,
         .short_arg = 'e',
         .long_arg = "error-files",
         .type = ARGDEF_TYPE_BOOL,
     };
     argdefs[5] = (Argdef) {
-        .id = 5,
         .type = ARGDEF_TYPE_RAW,
     };
 

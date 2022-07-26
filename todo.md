@@ -1,6 +1,5 @@
 ## TODO
 - add unit tests
-  - for `parse_args`
   - for `parse_http_request`
   - for `buf_encode_url`
   - for `cleanup_path`
@@ -19,8 +18,11 @@
   - put a verbose flag check before every log
 
 - features
+  - `-d` flag for defaults (?)
+    Equivalent to `-e -iindex.html,index.htm,index -s.html,.htm -p80`
   - table for mime types
-  - move Poll_Queue struct inside Server struct and make connections and pollfds arrays dynamic (maybe write some tests before doing rewrites like this)
+  - move Poll_Queue struct inside Server struct and make connections and pollfds
+    arrays dynamic (maybe write some tests before doing rewrites like this)
   - Support Range / partial content for streaming or resuming a download
   - Use sendfile() when possible
   - Support HEAD requests(?)
@@ -32,7 +34,8 @@
   - use hashmap instead of lookup table for mime types
   - when serving a single non-directory file, don't resolve any paths
   - caching with infinite (?) TTL
-  - use readdir() instead of scandir() for faster dir scanning (~/src/darkhttpd/darkhttpd.c:1830:0)
+  - use readdir() instead of scandir() for faster dir scanning
+    (~/src/darkhttpd/darkhttpd.c:1830:0)
 
 - Skim RFCs
   - [HTTP/1.1 - Syntax & Routing (main)](https://datatracker.ietf.org/doc/html/rfc7230)

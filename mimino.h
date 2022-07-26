@@ -49,13 +49,25 @@ typedef struct {
     int status;
 } Connection;
 
+
 typedef struct {
     int verbose;
     int quiet;
-    char *index;
+    int unsafe;
+    int chroot;
+    int serve_error_files;
     char *serve_path;
-    char *index_path;
     char *port;
+    char *index;  // TODO: replace with array of strings 'index_list'
+    char *suffix; // TODO: replace with array of strings 'suffix_list'
+    char *chroot_dir;
+} Server_Config;
+
+typedef struct {
+    Server_Config conf;
+    int verbose;
+    int quiet;
+    char *serve_path;
     int sock;
     char ip[INET6_ADDRSTRLEN];
     struct addrinfo addrinfo;
