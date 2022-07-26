@@ -1,4 +1,6 @@
 ## TODO
+- think of a way to enable both dirlisting and indexing (maybe `-d` flag to disable dirlistings?)
+
 - add unit tests
   - for `parse_http_request`
   - for `buf_encode_url`

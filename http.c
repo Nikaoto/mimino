@@ -307,16 +307,6 @@ file_list_to_html(Buffer *buf, char *endpoint, File_List *fl)
 void
 buf_write_dirlisting_http(Buffer *buf, char *dir, char *http_path)
 {
-    // Forward to path with trailing slash if it's missing
-    if (http_path[strlen(http_path) - 1] != '/') {
-        buf_sprintf(
-            buf,
-            "HTTP/1.1 301\r\n"
-            "Location:%s/\r\n\r\n",
-            http_path);
-        return;
-    }
-
     // Get file list
     File_List *fl = ls(dir);
     if (!fl) {
@@ -355,7 +345,7 @@ Http_Response*
 make_http_response(Server *serv, Http_Request *req)
 {
     Defer_Queue dq = NULL_DEFER_QUEUE;
-    File file;
+    File file = NULL_FILE;
 
     Http_Response *res = xmalloc(sizeof(Http_Response));
     res->buf = new_buf(RESPONSE_BUF_INIT_SIZE);
@@ -380,6 +370,7 @@ make_http_response(Server *serv, Http_Request *req)
     char *base_name = get_base_name(real_path);
     int read_result = read_file_info(&file, real_path, base_name);
     free(base_name);
+    // FIXME: possible free() call on file.name which might never get allocated
     defer(&dq, free_file_parts, &file);
 
     // File not found
@@ -399,8 +390,37 @@ make_http_response(Server *serv, Http_Request *req)
 
     // We're serving a dirlisting
     if (file.is_dir) {
-        buf_write_dirlisting_http(res->buf, real_path, decoded_http_path);
-        return fulfill(&dq, res);
+        // Forward to path with trailing slash if it's missing
+        if (decoded_http_path[strlen(decoded_http_path) - 1] != '/') {
+            buf_sprintf(
+                res->buf,
+                "HTTP/1.1 301\r\n"
+                "Location:%s/\r\n\r\n",
+                decoded_http_path);
+            return fulfill(&dq, res);
+        }
+
+        // Look for the index file if configured
+        int index_found = 0;
+        if (serv->conf.index != NULL) {
+            char *index_real_path = resolve_path(real_path, serv->conf.index);
+            defer(&dq, free, index_real_path);
+            int index_read_result = read_file_info(
+                &file,
+                index_real_path,
+                serv->conf.index);
+
+            // Index file found
+            if (index_read_result == 1) {
+                index_found = 1;
+                real_path = index_real_path;
+            }
+        }
+
+        if (index_found == 0) {
+            buf_write_dirlisting_http(res->buf, real_path, decoded_http_path);
+            return fulfill(&dq, res);
+        }
     }
 
     // We're serving a single file
