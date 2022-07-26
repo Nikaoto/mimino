@@ -7,7 +7,7 @@ xmalloc(size_t size)
 {
     void *p = malloc(size);
     if (p == NULL) {
-        fprintf(stderr, "malloc() failed, aborting!");
+        fprintf(stderr, "malloc() failed, aborting!\n");
         exit(1);
     }
     return p;
@@ -18,7 +18,7 @@ xrealloc(void *ptr, size_t size)
 {
     void *p = realloc(ptr, size);
     if (p == NULL) {
-        fprintf(stderr, "realloc() failed, aborting!");
+        fprintf(stderr, "realloc() failed, aborting!\n");
         exit(1);
     }
     return p;
@@ -29,7 +29,7 @@ xstrdup(char *src)
 {
     char *p = strdup(src);
     if (p == NULL) {
-        fprintf(stderr, "strdup() failed, aborting!");
+        fprintf(stderr, "strdup() failed, aborting!\n");
         exit(1);
     }
     return p;
@@ -40,7 +40,7 @@ xstrndup(char *src, size_t n)
 {
     char *p = strndup(src, n);
     if (p == NULL) {
-        fprintf(stderr, "strndup() failed, aborting!");
+        fprintf(stderr, "strndup() failed, aborting!\n");
         exit(1);
     }
     return p;
