@@ -42,7 +42,8 @@ clean:
 	rm -rf tests/run_tests
 
 test: $(OBJS)
-	$(CC) $(CFLAGS) $(OBJS) -I./ tests/test_main.c -o tests/run_tests
+	$(CC) $(CFLAGS) -Wno-incompatible-pointer-types \
+		$(OBJS) -I./ tests/test_main.c -o tests/run_tests
 	@echo
 	./tests/run_tests
 

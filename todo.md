@@ -25,8 +25,7 @@
   - `-d` flag for defaults (?)
     Equivalent to `-e -iindex.html,index.htm,index -s.html,.htm -p80`
   - table for mime types
-  - move Poll_Queue struct inside Server struct and make connections and pollfds
-    arrays dynamic (maybe write some tests before doing rewrites like this)
+  - make connections and pollfds arrays dynamic
   - Support Range / partial content for streaming or resuming a download
   - Use sendfile() when possible
   - Support HEAD requests(?)

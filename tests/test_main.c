@@ -140,6 +140,35 @@ test_parse_args()
     }
 
 
+    esma_log_test("Handle one short unsupported argument");
+    {
+        Argdef ad[1];
+        memset(ad, 0, sizeof(ad));
+        ad[0] = (Argdef) {
+            .short_arg = 'v',
+            .type = ARGDEF_TYPE_BOOL,
+        };
+
+        char *argv[] = {"./mimino", "-h"};
+        esma_assert(parse_args(lenof(argv), argv, lenof(ad), &ad));
+        esma_assert(!ad[0].bvalue);
+    }
+
+
+    esma_log_test("Handle one long unsupported argument");
+    {
+        Argdef ad[1];
+        memset(ad, 0, sizeof(ad));
+        ad[0] = (Argdef) {
+            .short_arg = 'v',
+            .type = ARGDEF_TYPE_BOOL,
+        };
+
+        char *argv[] = {"./mimino", "--help"};
+        esma_assert(parse_args(lenof(argv), argv, lenof(ad), &ad));
+        esma_assert(!ad[0].bvalue);        
+    }
+
     esma_log_test("Handle one long boolean argument");
     {
         Argdef ad_long[1];

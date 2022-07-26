@@ -10,6 +10,9 @@ static int debug = 0;
 static int
 long_arg_match(char *arg, char *flag)
 {
+    if (!arg) return 0;
+    if (!flag) return 0;
+
     if (arg[0] != '-') return 0;
     if (arg[1] != '-') return 0;
     arg += 2;
@@ -29,6 +32,15 @@ long_arg_match(char *arg, char *flag)
     if (*arg == '\0' || *arg == '=') return 1;
 
     return 0;
+}
+
+static int
+short_arg_match(char *arg, char *flag)
+{
+    if (!arg) return 0;
+    if (!flag) return 0;
+    
+    return *arg == *flag;
 }
 
 int
@@ -113,7 +125,7 @@ parse_args(int argc, char **argv, int argdefc, Argdef *argdefs)
             int stop = 0;
             for (char *c = argv[i] + 1; *c != '\0' && !stop; c++) {
                 for (int j = 0; j < argdefc; j++) {
-                    if (argdefs[j].short_arg == *c) {
+                    if (short_arg_match(c, &(argdefs[j].short_arg))) {
                         argdefs[j].bvalue = 1;
 
                         if (argdefs[j].type == ARGDEF_TYPE_BOOL)
