@@ -1,7 +1,6 @@
 ## TODO
 - add unit tests
   - for `parse_args`
-  - for `decode_url`
   - for `parse_http_request`
   - for `buf_encode_url`
   - for `cleanup_path`

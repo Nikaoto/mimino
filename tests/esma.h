@@ -10,6 +10,7 @@
 // VT100 colors
 #define ESMA_C_RESET     "\x1b[0m"
 #define ESMA_C_FG_BWHITE "\x1b[97m"
+#define ESMA_C_FG_GRAY   "\x1b[2m"
 #define ESMA_C_FG_BLACK  "\x1b[30m"
 #define ESMA_C_FG_RED    "\x1b[31m"
 #define ESMA_C_FG_GREEN  "\x1b[32m"
@@ -18,11 +19,22 @@
 #define ESMA_C_BG_GREEN  "\x1b[42m"
 #define ESMA_C_BG_YELLOW "\x1b[44m"
 
-#define esma_log_fail(msg) \
-    esma_log("%s\n", ESMA_C_FG_RED "FAIL" ESMA_C_RESET ": " #msg);
-#define esma_log_ok(msg) \
-    esma_log("%s\n", ESMA_C_FG_GREEN "OK" ESMA_C_RESET ": " #msg);
-
+#define esma_log_fail(msg)                      \
+    esma_log("%s %s%s:%i%s %s\n",               \
+             ESMA_C_FG_RED "FAIL" ESMA_C_RESET, \
+             ESMA_C_FG_GRAY,                    \
+             __FILE__,                          \
+             __LINE__,                          \
+             ESMA_C_RESET,                      \
+             #msg);
+#define esma_log_ok(msg)                        \
+    esma_log("%s %s%s:%i%s %s\n",               \
+             ESMA_C_FG_GREEN "OK" ESMA_C_RESET, \
+             ESMA_C_FG_GRAY,                    \
+             __FILE__,                          \
+             __LINE__,                          \
+             ESMA_C_RESET,                      \
+             #msg);
 extern int tests_run;
 extern int tests_ok;
 extern int tests_failed;
