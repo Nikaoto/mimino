@@ -94,6 +94,9 @@ parse_args(int argc, char **argv, int argdefc, Argdef *argdefs)
                         break;
 
                     case ARGDEF_TYPE_STRING:
+                    case ARGDEF_TYPE_INT:
+                    case ARGDEF_TYPE_FLOAT:
+                    case ARGDEF_TYPE_DOUBLE:
                         argdefs[j].value.s = NULL;
                         eqp = strchr(argv[i], '=');
 
@@ -126,112 +129,45 @@ parse_args(int argc, char **argv, int argdefc, Argdef *argdefs)
                 }
             }
         } else if (argv[i][0] == '-') {
-            // TODO: Short-form arg
-        }
-
-        // Raw arg
-        for (int j = last_raw_arg_ind; j < argdefc; j++) {
-            if (argdefs[j].type == ARGDEF_TYPE_RAW) {
-                argdefs[j].value.s = argv[i];
-                last_raw_arg_ind = j + 1;
-                break;
-            }
-        }
-    }
-
-    return ret;
-
-    //int last_raw_arg_ind = 0;
-    // Iterate argdefs once; argv - every time (for searches)
-    for (int i = 0; i < argdefc; i++) {
-        switch (argdefs[i].type) {
-        case ARGDEF_TYPE_BOOL:
-            // Match short arg
-            if (argdefs[i].short_arg) {
-                argdefs[i].value.b = 0;
-                for (int j = 1; j < argc; j++) {
-                    if (short_arg_match(argv[j], argdefs[i].short_arg)) {
-                        argdefs[i].value.b = 1;
-                    }
-                }
-            }
-
-            // Match long arg
-            if (argdefs[i].long_arg) {
-                argdefs[i].value.b = 0;
-                for (int j = 1; j < argc; j++) {
-                    if (long_arg_match(argv[j], argdefs[i].long_arg)) {
-                        // Parse '=' if present
-                        char *eqp = strchr(argv[j], '=');
-                        if (!eqp) {
-                            argdefs[i].value.b = 1;
-                            continue;
-                        }
-
-                        // '=' present
-                        if (eqp[1] == '\0' || eqp[1] == '0') {
-                            argdefs[i].value.b = 0;
-                        } else {
-                            argdefs[i].value.b = 1;
+            // Short-form arg
+            int stop = 0;
+            for (char *c = argv[i] + 1; *c != '\0' && !stop; c++) {
+                for (int j = 0; j < argdefc; j++) {
+                    if (argdefs[j].short_arg == *c) {
+                        if (argdefs[j].type == ARGDEF_TYPE_BOOL) {
+                            argdefs[j].value.b = 1;
+                            break;
+                        } else if (argdefs[j].type != ARGDEF_TYPE_RAW) {
+                            // argdefs[j] is either int, string, float or double
+                            argdefs[j].value.s = c + 1;
+                            stop = 1;
+                            break;
                         }
                     }
                 }
             }
-            break;
-
-        case ARGDEF_TYPE_STRING:
-            argdefs[i].value.s = NULL;
-            // Match short arg
-            /* if (argdefs[i].short_arg) { */
-            /*     for (int j = 1; j < argc; j++) { */
-            /*         if (short_arg_match(argv[j], argdefs[i].short_arg)) { */
-                        
-            /*         } */
-            /*     } */
-            /* } */
-
-
-            // Match long arg
-            if (argdefs[i].long_arg) {
-                for (int j = 1; j < argc; j++) {
-                    if (long_arg_match(argv[j], argdefs[i].long_arg)) {
-                        // Parse '=' if present
-                        char *eqp = strchr(argv[j], '=');
-                        if (!eqp) {
-                            if (j + 1 >= argc) {
-                                argdefs[i].err = "No value given for argument";
-                                break;
-                            }
-
-                            argdefs[i].value.s = argv[j+1];
-                            continue;
-                        }
-
-                        if (eqp[1] == '\0') {
-                            argdefs[i].value.s = NULL;
-                            argdefs[i].err = "No value given after \"=\"";
-                            ret = 0;
-                        } else {
-                            argdefs[i].value.s 
-= eqp + 1;
-                        }
-                    }
-                }
-            }
-            break;
-
-        case ARGDEF_TYPE_RAW:
-            argdefs[i].value.s = NULL;
-            for (int j = last_raw_arg_ind + 1; j < argc; j++) {
-                if (argv[j][0] != '-') {
-                    argdefs[i].value.s = argv[j];
-                    last_raw_arg_ind = j;
+        } else {
+            // Raw arg
+            for (int j = last_raw_arg_ind; j < argdefc; j++) {
+                if (argdefs[j].type == ARGDEF_TYPE_RAW) {
+                    argdefs[j].value.s = argv[i];
+                    last_raw_arg_ind = j + 1;
                     break;
                 }
             }
-            break;
         }
     }
+
+    if (debug) {
+        printf("first step finished, argdefs: [\n");
+        for (int i = 0; i < argdefc; i++) {
+            print_argdef(argdefs + i);
+        }
+        printf("]\n");
+    }
+
+    // TODO: step 2: iterate all int, float and double argdefs and parse their
+    // string values
 
     if (debug) {
         printf("parse finished, argdefs: [\n");

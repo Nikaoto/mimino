@@ -8,6 +8,7 @@ typedef struct {
     char *long_arg; // with double dash
     char *err;      // returned error message
     char type;      // one of [ibfdsr]
+    // TODO: add .found bool and tests
     union {
         int i;    // integer
         int b;    // boolean
