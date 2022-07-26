@@ -320,7 +320,7 @@ buf_write_dirlisting_http(Buffer *buf, char *dir, char *http_path)
     // both here and in make_http_response()
 
     // Write the html into a separate buffer, so we can measure its length
-    Buffer *html_buf = new_buf(RESPONSE_BUF_INIT_SIZE);
+    Buffer *html_buf = new_buf(RESPONSE_BODY_BUF_INIT_SIZE);
     file_list_to_html(html_buf, http_path, fl);
 
     char date_buf[DATE_LEN];
@@ -347,11 +347,17 @@ make_http_response(Server *serv, Http_Request *req)
 {
     Defer_Queue dq = NULL_DEFER_QUEUE;
 
+
     Http_Response *res = xmalloc(sizeof(Http_Response));
-    init_buf(&res->head, RESPONSE_BUF_INIT_SIZE);
+    init_buf(&res->head, RESPONSE_HEADERS_BUF_INIT_SIZE);
     res->head_nbytes_sent = 0;
 
-    res->body.data = NULL;
+    int is_head_request = !strcasecmp(req->method, "HEAD");
+    if (is_head_request) {
+        res->body.data = NULL;
+    } else {
+        init_buf(&res->body, RESPONSE_BODY_BUF_INIT_SIZE);
+    }
     res->body_nbytes_sent = 0;
 
     res->file = NULL_FILE;
@@ -393,7 +399,9 @@ make_http_response(Server *serv, Http_Request *req)
         buf_append_str(&res->head, "\r\n");
 
         // Body
-        buf_append_str(&res->body, body);
+        if (!is_head_request) {
+            buf_append_str(&res->body, body);
+        }
         return fulfill(&dq, res);
     }
 
@@ -498,16 +506,6 @@ make_http_response(Server *serv, Http_Request *req)
 
     // Last empty line after headers
     buf_append_str(&res->head, "\r\n");
-
-    // Write file contents
-    /*int code = buf_append_file_contents(res->buf, &(res->file), real_path);
-    if (code == -1 || code == 0) {
-        // TODO: handle this failure better (with a 500 err code).
-        fprintf(stderr,
-                "buf_append_file_contents failed with code %i\n",
-                code);
-        return fulfill(&dq, res);
-    }*/
 
     return fulfill(&dq, res);
 }

@@ -20,8 +20,9 @@
 #define CONN_STATE_WRITING_FINISHED 4
 #define CONN_STATE_CLOSING          5
 
-#define MAX_REQUEST_SIZE       1<<12
-#define RESPONSE_BUF_INIT_SIZE 1<<12
+#define MAX_REQUEST_SIZE               1<<12
+#define RESPONSE_HEADERS_BUF_INIT_SIZE 1<<12
+#define RESPONSE_BODY_BUF_INIT_SIZE    1<<12
 
 typedef struct {
     Buffer *buf;
