@@ -191,7 +191,6 @@ test_parse_args()
         esma_assert(!cmpstr(ad_long[0].value, "8080"));
     }
 
-
     Argdef argdefs[6];
     memset(argdefs, 0, sizeof(argdefs));
     argdefs[0] = (Argdef) {
@@ -304,6 +303,102 @@ test_parse_args()
         esma_assert(!cmpstr(argdefs[2].value, "8090"));
         esma_assert(!cmpstr(argdefs[3].value, "index.asdf"));
         esma_assert(!cmpstr(argdefs[5].value, "dir/"));
+
+        argdef_undo_parse(argdefs, lenof(argdefs));
+    }
+
+    esma_log_test("Arguments after double dash \"--\" should be taken as raw");
+    {
+
+        esma_log_subtest("Argument starting with a dash is read as raw");
+        char *argv_d[] = {"./mimino", "--", "-v"};
+        esma_assert(parse_args(lenof(argv_d), argv_d, lenof(argdefs), argdefs));
+
+        esma_assert(!argdefs[0].bvalue);
+        esma_assert(!argdefs[1].bvalue);
+        esma_assert(!argdefs[2].bvalue);
+        esma_assert(!argdefs[3].bvalue);
+        esma_assert(!argdefs[4].bvalue);
+        esma_assert(argdefs[5].bvalue);
+        esma_assert(!cmpstr(argdefs[5].value, "-v"));
+
+        argdef_undo_parse(argdefs, lenof(argdefs));
+
+        esma_log_subtest("Argument starting without a dash is read as raw");
+        char *argv[] = {"./mimino", "--", "dir/"};
+        esma_assert(parse_args(lenof(argv), argv, lenof(argdefs), argdefs));
+        esma_assert(!argdefs[0].bvalue);
+        esma_assert(!argdefs[1].bvalue);
+        esma_assert(!argdefs[2].bvalue);
+        esma_assert(!argdefs[3].bvalue);
+        esma_assert(!argdefs[4].bvalue);
+        esma_assert(argdefs[5].bvalue);
+        esma_assert(!cmpstr(argdefs[5].value, "dir/"));
+
+        argdef_undo_parse(argdefs, lenof(argdefs));
+
+        esma_log_subtest("Arguments before and after the double-dash are parsed correctly");
+
+        char *argv_mix[] = {"./mimino", "-v", "-p80", "--", "-u"};
+        esma_assert(parse_args(lenof(argv_mix), argv_mix, lenof(argdefs), argdefs));
+        esma_assert(argdefs[0].bvalue);
+        esma_assert(!argdefs[1].bvalue);
+        esma_assert(argdefs[2].bvalue);
+        esma_assert(!cmpstr(argdefs[2].value, "80"));
+        esma_assert(!argdefs[3].bvalue);
+        esma_assert(!argdefs[4].bvalue);
+        esma_assert(argdefs[5].bvalue);
+        esma_assert(!cmpstr(argdefs[5].value, "-u"));
+
+        argdef_undo_parse(argdefs, lenof(argdefs));
+    }
+
+    esma_log_test("Handle multiple raw arguments before and after double-dash");
+    {
+        Argdef argdefs[7];
+        memset(argdefs, 0, sizeof(argdefs));
+        argdefs[0] = (Argdef) {
+            .short_arg = 'v',
+            .long_arg = "verbose",
+            .type = ARGDEF_TYPE_BOOL,
+        };
+        argdefs[1] = (Argdef) {
+            .short_arg = 'u',
+            .long_arg = "unsafe",
+            .type = ARGDEF_TYPE_BOOL,
+        };
+        argdefs[2] = (Argdef) {
+            .short_arg = 'p',
+            .long_arg = "port",
+            .type = ARGDEF_TYPE_STRING,
+        };
+        argdefs[3] = (Argdef) {
+            .type = ARGDEF_TYPE_RAW,
+        };
+        argdefs[4] = (Argdef) {
+            .type = ARGDEF_TYPE_RAW,
+        };
+        argdefs[5] = (Argdef) {
+            .type = ARGDEF_TYPE_RAW,
+        };
+        argdefs[6] = (Argdef) {
+            .type = ARGDEF_TYPE_RAW,
+        };
+
+        char *argv[] = {"./mimino", "-v", "-p80", "raw1", "--", "raw2", "-raw3", "raw4"};
+        esma_assert(parse_args(lenof(argv), argv, lenof(argdefs), argdefs));
+        esma_assert(argdefs[0].bvalue);
+        esma_assert(!argdefs[1].bvalue);
+        esma_assert(argdefs[2].bvalue);
+        esma_assert(!cmpstr(argdefs[2].value, "80"));
+        esma_assert(argdefs[3].bvalue);
+        esma_assert(!cmpstr(argdefs[3].value, "raw1"));
+        esma_assert(argdefs[4].bvalue);
+        esma_assert(!cmpstr(argdefs[4].value, "raw2"));
+        esma_assert(argdefs[5].bvalue);
+        esma_assert(!cmpstr(argdefs[5].value, "-raw3"));
+        esma_assert(argdefs[6].bvalue);
+        esma_assert(!cmpstr(argdefs[6].value, "raw4"));
 
         argdef_undo_parse(argdefs, lenof(argdefs));
     }

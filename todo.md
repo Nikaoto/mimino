@@ -1,9 +1,6 @@
 ## TODO
 
 - handle more than 20 simultaneous connections
-- Handle 'end of arguments' double dash like in
-  `./mimino -e -p8080 -- servedir`
-  so that all arguments after the double dash are only considered raw
 - `ag TODO:`
 - add unit tests
   - for `parse_http_request`

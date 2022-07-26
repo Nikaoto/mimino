@@ -7,8 +7,14 @@ typedef struct {
     char *long_arg; // with double dash
     char *err;      // returned error message
     char type;      // one of [bsr]
-    int bvalue;     // boolean value
-    char *value;    // string value
+
+    // Boolean value set by parse_args().
+    // Is set to 1 if the argument was present, otherwise it's 0.
+    int bvalue;     
+
+    // String value set by parse_args().
+    // Only set for string types.
+    char *value;    
 } Argdef;
 
 // raw is for arguments given without flags

@@ -39,6 +39,7 @@ short_arg_match(char *arg, char *flag)
 {
     if (!arg) return 0;
     if (!flag) return 0;
+    if (*flag == 0) return 0;
 
     return *arg == *flag;
 }
@@ -60,9 +61,15 @@ parse_args(int argc, char **argv, int argdefc, Argdef *argdefs)
     }
 
 
+    // Is set to 1 when a double-dash is found
+    // and reads all arguments after it as raw.
+    int raw_escape = 0; 
+
     int last_raw_arg_ind = 0;
     for (int i = 1; i < argc; i++) {
-        if (argv[i][0] == '-' && argv[i][1] == '-') {
+        if (!raw_escape && argv[i][0] == '-' && argv[i][1] == '-') {
+            if (argv[i][2] == '\0') raw_escape = 1;
+
             // Long-form arg
             for (int j = 0; j < argdefc; j++) {
                 if (long_arg_match(argv[i], argdefs[j].long_arg)) {
@@ -120,7 +127,7 @@ parse_args(int argc, char **argv, int argdefc, Argdef *argdefs)
                     break;
                 }
             }
-        } else if (argv[i][0] == '-') {
+        } else if (!raw_escape && argv[i][0] == '-') {
             // Short-form arg
             int stop = 0;
             for (char *c = argv[i] + 1; *c != '\0' && !stop; c++) {
@@ -159,6 +166,7 @@ parse_args(int argc, char **argv, int argdefc, Argdef *argdefs)
             // Raw arg
             for (int j = last_raw_arg_ind; j < argdefc; j++) {
                 if (argdefs[j].type == ARGDEF_TYPE_RAW) {
+                    argdefs[j].bvalue = 1;
                     argdefs[j].value = argv[i];
                     last_raw_arg_ind = j + 1;
                     break;
