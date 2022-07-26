@@ -160,6 +160,11 @@ buf_append_file_contents(Buffer *buf, File *f, char *path)
 void
 print_buf_ascii(FILE *stream, Buffer *buf)
 {
+    if (buf->n_items == 0) {
+        fprintf(stream, "(No data do print)\n");
+        return;
+    }
+
     for (size_t i = 0; i < buf->n_items; i++) {
         switch (buf->data[i]) {
         case '\n':

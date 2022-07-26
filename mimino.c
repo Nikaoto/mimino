@@ -177,13 +177,10 @@ accept_new_conn(int listen_sock)
 // Return 1 if done reading completely.
 // Return 0 if an incomplete read happened.
 // Return -1 on fatal error or max retry reached.
+// Return -2 when request too large
 int
 read_request(Connection *conn)
 {
-    // TODO: instead of having a separate raw request string for
-    // each request, a static one and discard it after parsing the
-    // request (we can also parse it exactly here after reading it
-    // fully)
     int n = recv(conn->fd,
                  conn->req->buf->data + conn->req->buf->n_items,
                  conn->req->buf->n_alloc - conn->req->buf->n_items,
@@ -214,9 +211,8 @@ read_request(Connection *conn)
         return 1;
     }
 
-    // TODO: handle case when request is too large - send 413
     if (conn->req->buf->n_items == conn->req->buf->n_alloc) {
-        printf("Request too large!\n");
+        return -2;
     }
 
     return 0;
@@ -509,11 +505,20 @@ main(int argc, char **argv)
                 }
 
                 int status = read_request(conn);
-                if (status == -1) {
-                    // Reading failed
+                switch (status) {
+                case 0:  // Partial read
+                    conn->last_active = serv.time_now;
+                    break;
+                case -1: // Reading error
                     free_connection_parts(conn);
                     close_connection(&serv, fd_i);
-                } else if (status == 1) {
+                    break;
+                case -2: // Request too large
+                    // TODO: send 413 error instead
+                    free_connection_parts(conn);
+                    close_connection(&serv, fd_i);
+                    break;
+                case 1:  // Finished reading
                     conn->last_active = serv.time_now;
 
                     // Reading done, parse request
@@ -549,8 +554,7 @@ main(int argc, char **argv)
                     // Start writing
                     conn->status = CONN_STATUS_WRITING;
                     pfd->events  = POLLOUT;
-                } else if (status == 0) {
-                    conn->last_active = serv.time_now;
+                    break;
                 }
                 break;
             }

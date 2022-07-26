@@ -1,5 +1,6 @@
 ## TODO
 - think of a way to enable both dirlisting and indexing (maybe `-d` flag to disable dirlistings?)
+- send back response of 'Keep-Alive: timeout=x'
 
 - add unit tests
   - for `parse_http_request`
@@ -17,7 +18,6 @@
     is set)
 
 - logging / debugging
-  - log the server configuration when starting up
   - put a verbose flag check before every log
 
 - features
@@ -27,6 +27,10 @@
   - table for mime types
   - make connections and pollfds arrays dynamic
   - Support Range / partial content for streaming or resuming a download
+    - discard requests which have overlapping byte ranges
+    - discard requests with many small byte ranges
+    - code 206
+    - read about If-Range header
   - Use sendfile() when possible
   - Support HEAD requests(?)
   - support ipv6 (just start listen()ing on one ipv6 socket)
