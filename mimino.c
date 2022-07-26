@@ -176,10 +176,11 @@ accept_new_conn(int listen_sock)
     return newsock;
 }
 
-// Return 1 if done reading completely.
-// Return 0 if an incomplete read happened.
-// Return -1 on fatal error or max retry reached.
-// Return -2 when request too large
+#define RR_CLIENT_CLOSED 2 // client closed connection.
+#define RR_COMPLETE_READ 1 // done reading completely.
+#define RR_PARTIAL_READ  0 // an incomplete read happened.
+#define RR_FATAL_ERROR  -1 // fatal error or max retry reached.
+#define RR_REQ_TOO_BIG  -2 // when request is too big to handle.
 int
 read_request(Connection *conn)
 {
@@ -192,13 +193,13 @@ read_request(Connection *conn)
         if (errno == EWOULDBLOCK || errno == EAGAIN || errno == EINTR) {
             if (conn->read_tries_left == 0) {
                 fprintf(stderr, "Reached max read tries for conn\n");
-                return -1;
+                return RR_FATAL_ERROR;
             }
             conn->read_tries_left--;
         }
         errno = saved_errno;
         perror("recv()");
-        return 0;
+        return RR_PARTIAL_READ;
     }
 
     //dump_data(stdout,
@@ -209,15 +210,18 @@ read_request(Connection *conn)
     conn->req->buf->n_items += n;
 
     // Finished reading
-    if (n == 0 || is_http_end(conn->req->buf->data, conn->req->buf->n_items)) {
-        return 1;
+    if (is_http_end(conn->req->buf->data, conn->req->buf->n_items))
+        return RR_COMPLETE_READ;
+    if (n == 0) {
+        if (conn->req->buf->n_items == 0) return RR_CLIENT_CLOSED;
+        else return RR_COMPLETE_READ;
     }
 
-    if (conn->req->buf->n_items == conn->req->buf->n_alloc) {
-        return -2;
-    }
+    // Not finished yet, but req buffer full
+    if (conn->req->buf->n_items == conn->req->buf->n_alloc)
+        return RR_REQ_TOO_BIG;
 
-    return 0;
+    return RR_PARTIAL_READ;
 }
 
 // Return 1 if done writing completely.
@@ -479,13 +483,8 @@ main(int argc, char **argv)
 
         // Iterate poll queue (starts from 1, skipping listen_sock)
         for (nfds_t fd_i = 1; fd_i < serv.queue.pollfd_count; fd_i++) {
-
-            printf("fd_i: %ld\n", fd_i);
-            printf("serv.queue.pollfd_count: %ld\n", serv.queue.pollfd_count);
             Connection *conn = &(serv.queue.conns[fd_i]);
             struct pollfd *pfd = &(serv.queue.pollfds[fd_i]);
-            printf("conn->fd: %d\n", conn->fd);
-            printf("pfd->fd: %d\n", pfd->fd);
 
             // Drop connection if it timed out
             if ((conn->status != CONN_STATUS_CLOSED) &&
@@ -512,19 +511,24 @@ main(int argc, char **argv)
 
                 int status = read_request(conn);
                 switch (status) {
-                case 0:  // Partial read
+
+                case RR_PARTIAL_READ:
                     conn->last_active = serv.time_now;
                     break;
-                case -1: // Reading error
+
+                case RR_FATAL_ERROR:
+                case RR_CLIENT_CLOSED:
                     free_connection_parts(conn);
                     close_connection(&serv, fd_i);
                     break;
-                case -2: // Request too large
+
+                case RR_REQ_TOO_BIG:
                     // TODO: send 413 error instead
                     free_connection_parts(conn);
                     close_connection(&serv, fd_i);
                     break;
-                case 1:  // Finished reading
+
+                case RR_COMPLETE_READ:
                     conn->last_active = serv.time_now;
 
                     // Reading done, parse request

@@ -379,15 +379,23 @@ make_http_response(Server *serv, Http_Request *req)
 
     // File not found
     if (read_result == -1) {
-        printf("file %s not found\n", real_path);
+        char *body = "Error 404: file not found\n";
+
+        // Status
         buf_append_str(res->buf, "HTTP/1.1 404\r\n");
-        buf_sprintf(
-            res->buf,
-            "Keep-Alive: timeout=%s\r\n",
-            serv->conf.timeout_secs);
+
+        // Headers
+        /* TODO: have a function like
+            `write_standard_headers(buf, serv)` that puts
+            Connection, Keep-Alive, Date headers into buf */
+        buf_append_str(res->buf, "Content-Type: text/plain\r\n");
+        buf_sprintf(res->buf, "Content-Length: %zu\r\n", strlen(body));
+        /*buf_sprintf(res->buf, "Keep-Alive: timeout=%d\r\n",
+            serv->conf.timeout_secs);*/
         buf_append_str(res->buf, "\r\n");
-        // TODO: buf_append_http_error_msg(404);
-        buf_append_str(res->buf, "Error 404: file not found\r\n");
+
+        // Content
+        buf_append_str(res->buf, body);
         return fulfill(&dq, res);
     }
 
@@ -404,12 +412,12 @@ make_http_response(Server *serv, Http_Request *req)
             buf_sprintf(
                 res->buf,
                 "HTTP/1.1 301\r\n"
-                "Location:%s/\r\n",
+                "Location: %s/\r\n",
                 decoded_http_path);
-            buf_sprintf(
+            /*buf_sprintf(
                 res->buf,
-                "Keep-Alive: timeout=%s\r\n\r\n",
-                serv->conf.timeout_secs);
+                "Keep-Alive: timeout=%d\r\n\r\n",
+                serv->conf.timeout_secs);*/
             return fulfill(&dq, res);
         }
 
@@ -440,10 +448,10 @@ make_http_response(Server *serv, Http_Request *req)
     buf_append_str(res->buf, "HTTP/1.1 200\r\n");
 
     // Keep-Alive
-    buf_sprintf(
+    /*buf_sprintf(
         res->buf,
-        "Keep-Alive: timeout=%s\r\n\r\n",
-        serv->conf.timeout_secs);
+        "Keep-Alive: timeout=%d\r\n",
+        serv->conf.timeout_secs);*/
 
     // Content-Type
     if (strstr(file.name, ".html")) {
