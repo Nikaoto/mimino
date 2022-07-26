@@ -32,11 +32,11 @@ void dump_data(FILE *stream, char *buf, size_t bufsize, size_t nbytes_recvd);
 void ascii_dump_buf(FILE *stream, char *buf, size_t buf_size);
 
 void
-free_connection(Connection *conn)
+free_connection_parts(Connection *conn)
 {
-    free(conn->req);
+    free_http_request(conn->req);
     free_http_response(conn->res);
-    free(conn);
+    //free(conn);
 }
 
 inline Connection
@@ -363,6 +363,7 @@ main(int argc, char **argv)
                     int status = read_request(conn);
                     if (status == -1) {
                         // Reading failed
+                        free_connection_parts(conn);
                         close_connection(&poll_queue, fd_i);
                     } else if (status == 1) {
                         // Reading done, parse request
@@ -372,6 +373,7 @@ main(int argc, char **argv)
                         // Close on parse error
                         if (req->error) {
                             fprintf(stdout, "Parse error: %s\n", req->error);
+                            free_connection_parts(conn);
                             close_connection(&poll_queue, fd_i);
                         }
 
@@ -386,14 +388,14 @@ main(int argc, char **argv)
                 if (conn->pollfd->revents & POLLOUT) {
                     if (!conn->res) {
                         conn->res = construct_http_response(serv.serve_path, conn->req);
-                        print_http_response(stdout, conn->res);
+                        //print_http_response(stdout, conn->res);
                     }
 
                     int status = write_response(&serv, conn);
                     if (status == 1) {
                         // Close when done.
                         // Even HTTP errors like 5xx or 4xx go here.
-                        free_connection(conn);
+                        free_connection_parts(conn);
                         close_connection(&poll_queue, fd_i);
                     } else if (status == -1) {
                         // Fatal error encountered and can't send data.
@@ -403,7 +405,7 @@ main(int argc, char **argv)
                             fprintf(stdout,
                                     "Error when writing response: %s\n",
                                     conn->req->error);
-                            free_connection(conn);
+                            free_connection_parts(conn);
                             close_connection(&poll_queue, fd_i);
                         }
                     }

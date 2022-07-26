@@ -1,6 +1,6 @@
 # Makefile
 CC := cc
-CWARNS := -Wno-comments -Wno-implicit-fallthrough -Wno-incompatible-pointer-types
+CWARNS := -Wall -Wno-comments -Wno-implicit-fallthrough -Wno-incompatible-pointer-types
 CFLAGS := -pipe -O $(CWARNS) -g
 FAST_CFLAGS := -pipe -O2 -Wall -Wpedantic -Wextra -g
 LINK := $(CC)
