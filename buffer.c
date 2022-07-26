@@ -12,10 +12,21 @@
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #endif
 
+// Allocates new Buffer and its data
 Buffer*
 new_buf(size_t data_size)
 {
     Buffer *b = xmalloc(sizeof(Buffer));
+    b->data = xmalloc(data_size);
+    b->n_alloc = data_size;
+    b->n_items = 0;
+    return b;
+}
+
+// Only allocates the data of the Buffer
+Buffer*
+init_buf(Buffer *b, size_t data_size)
+{
     b->data = xmalloc(data_size);
     b->n_alloc = data_size;
     b->n_items = 0;

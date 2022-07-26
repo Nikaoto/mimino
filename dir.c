@@ -329,7 +329,7 @@ get_base_name(char *path)
 // Return 0 on first lstat success and write link stats into f.
 // Return 1 on complete success.
 int
-read_file_info(File *f, char *path, char *base_name)
+read_file_info(File *f, char *path)
 {
     // Get lstat
     struct stat sb;
@@ -342,9 +342,8 @@ read_file_info(File *f, char *path, char *base_name)
     }
 
     // Read data into *f
-    char *name = xstrdup(base_name);
     *f = (File) {
-        .name = name,
+        .name = NULL,
         .fd = -1,
         .mode = sb.st_mode,
         .size = sb.st_size,
@@ -411,9 +410,8 @@ ls(char *path)
     file_list->dir_info = xmalloc(sizeof(File));
 
     // Get directory info
-    char *dir_base_name = get_base_name(dir);
-    read_file_info(file_list->dir_info, dir, dir_base_name);
-    free(dir_base_name);
+    file_list->dir_info->name = get_base_name(dir);
+    read_file_info(file_list->dir_info, dir);
 
     // Write directory part of full_path
     char *full_path = xmalloc(sizeof(char) * dir_len + 256);
@@ -426,7 +424,8 @@ ls(char *path)
         char *file_name = namelist[i]->d_name;
         strncpy(full_path + dir_len, file_name, 256);
 
-        read_file_info(file_list->files + i, full_path, file_name);
+        file_list->files[i].name = xstrdup(file_name);
+        read_file_info(file_list->files + i, full_path);
         free(namelist[i]);
     }
     free(namelist);
@@ -440,8 +439,9 @@ ls(char *path)
 void
 free_file_parts(File *f)
 {
-    if (f->is_null)
-        return;
+    if (!f) return;
+    if (f->is_null) return;
+
     free(f->name);
 }
 

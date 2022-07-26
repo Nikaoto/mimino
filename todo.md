@@ -33,6 +33,7 @@
     Equivalent to `-e -iindex.html,index.htm,index -s.html,.htm -p80`
   - table for mime types
   - make connections and pollfds arrays dynamic
+  - `If-Modified-Since`
   - Support Range / partial content for streaming or resuming a download
     - discard requests which have overlapping byte ranges
     - discard requests with many small byte ranges

@@ -37,10 +37,15 @@ typedef struct {
 } Http_Request;
 
 typedef struct {
-    Buffer *buf;
-    size_t buf_nbytes_sent;
-    File file; // Its content is sent after buf's content
+    Buffer head;
+    size_t head_nbytes_sent;
+
+    Buffer body;
+    size_t body_nbytes_sent;
+
+    File file;
     size_t file_nbytes_sent;
+
     char *error;
 } Http_Response;
 

@@ -152,7 +152,7 @@ parse_http_request(Http_Request *req)
     // Parse headers
     while (1) {
         char *hn; // header name
-        //size_t hn_len;
+        size_t hn_len;
         char *hv; // header value
         size_t hv_len;
 
@@ -165,7 +165,7 @@ parse_http_request(Http_Request *req)
         hn = r;
         while (is_alpha(*r) || *r == '-')
             SAFE_ADVANCE(r, 1);
-        //hn_len = (size_t) (r - hn);
+        hn_len = (size_t) (r - hn);
 
         if (*r != ':') {
             req->error = "No ':' after header name";
@@ -201,13 +201,13 @@ parse_http_request(Http_Request *req)
         /* fputc('\n', stdout); */
 
         // Check if we handle header
-        if (!strncasecmp("Host", hn, 4)) {
+        if (!strncasecmp("Host:", hn, hn_len + 1)) {
             req->host = xstrndup(hv, hv_len);
-        } else if (!strncasecmp("User-Agent", hn, 10)) {
+        } else if (!strncasecmp("User-Agent:", hn, hn_len + 1)) {
             req->user_agent = xstrndup(hv, hv_len);
-        } else if (!strncasecmp("Accept", hn, 6)) {
+        } else if (!strncasecmp("Accept:", hn, hn_len + 1)) {
             req->accept = xstrndup(hv, hv_len);
-        } else if (!strncasecmp("Connection", hn, 10)) {
+        } else if (!strncasecmp("Connection:", hn, hn_len + 1)) {
             req->connection = xstrndup(hv, hv_len);
         }
     }
@@ -240,9 +240,6 @@ print_http_request(FILE *f, Http_Request *req)
         fprintf(f, "(Http_Request) NULL\n");
         return;
     }
-
-    fprintf(f, "%s %s\n", req->method, req->path);
-    return;
 
     fprintf(f, "(Http_Request) {\n");
     fprintf(f, "  .method = \"%s\",\n", req->method);
@@ -351,11 +348,15 @@ make_http_response(Server *serv, Http_Request *req)
     Defer_Queue dq = NULL_DEFER_QUEUE;
 
     Http_Response *res = xmalloc(sizeof(Http_Response));
-    //memset(res, 0, sizeof(*res));
-    res->buf = new_buf(RESPONSE_BUF_INIT_SIZE);
+    res->head = init_buf(&res->head, RESPONSE_BUF_INIT_SIZE);
+    res->head_nbytes_sent = 0;
+
+    res->body.data = NULL;
+    res->body_nbytes_sent = 0;
+
     res->file = NULL_FILE;
     res->file_nbytes_sent = 0;
-    res->buf_nbytes_sent = 0;
+
     res->error = NULL;
 
     char *clean_http_path = cleanup_path(req->path);
@@ -368,37 +369,34 @@ make_http_response(Server *serv, Http_Request *req)
     defer(&dq, free, real_path);
 
     // Find out if we're listing a dir or serving a file
-    char *base_name = get_base_name(real_path);
-    int read_result = read_file_info(&(res->file), real_path, base_name);
-    free(base_name);
-    // FIXME: possible free() call on file.name which might never get allocated
-    defer(&dq, (void (*)(void*))free_file_parts, &(res->file));
+    res->file.name = get_base_name(real_path);
+    int read_result = read_file_info(&(res->file), real_path);
 
     // File not found
     if (read_result == -1) {
         char *body = "Error 404: file not found\n";
 
         // Status
-        buf_append_str(res->buf, "HTTP/1.1 404\r\n");
+        buf_append_str(&res->head, "HTTP/1.1 404\r\n");
 
         // Headers
         /* TODO: have a function like
             `write_standard_headers(buf, serv)` that puts
             Connection, Keep-Alive, Date headers into buf */
-        buf_append_str(res->buf, "Content-Type: text/plain\r\n");
-        buf_sprintf(res->buf, "Content-Length: %zu\r\n", strlen(body));
+        buf_append_str(&res->head, "Content-Type: text/plain\r\n");
+        buf_sprintf(&res->head, "Content-Length: %zu\r\n", strlen(body));
         /*buf_sprintf(res->buf, "Keep-Alive: timeout=%d\r\n",
             serv->conf.timeout_secs);*/
-        buf_append_str(res->buf, "\r\n");
+        buf_append_str(&res->head, "\r\n");
 
-        // Content
-        buf_append_str(res->buf, body);
+        // Body
+        buf_append_str(res->body, body);
         return fulfill(&dq, res);
     }
 
     // Fatal error
     if (read_result == -2) {
-        buf_append_str(res->buf, "HTTP/1.1 500\r\n\r\n");
+        buf_append_str(&res->head, "HTTP/1.1 500\r\n\r\n");
         return fulfill(&dq, res);
     }
 
@@ -407,12 +405,12 @@ make_http_response(Server *serv, Http_Request *req)
         // Forward to path with trailing slash if it's missing
         if (decoded_http_path[strlen(decoded_http_path) - 1] != '/') {
             buf_sprintf(
-                res->buf,
+                &res->body,
                 "HTTP/1.1 301\r\n"
                 "Location: %s/\r\n",
                 decoded_http_path);
             /*buf_sprintf(
-                res->buf,
+                &res->head,
                 "Keep-Alive: timeout=%d\r\n\r\n",
                 serv->conf.timeout_secs);*/
             return fulfill(&dq, res);
@@ -423,10 +421,10 @@ make_http_response(Server *serv, Http_Request *req)
         if (serv->conf.index != NULL) {
             char *index_real_path = resolve_path(real_path, serv->conf.index);
             defer(&dq, free, index_real_path);
+            res->file.name = xstrdup(serv->conf.index);
             int index_read_result = read_file_info(
                 &(res->file),
-                index_real_path,
-                serv->conf.index);
+                index_real_path);
 
             // Index file found
             if (index_read_result == 1) {
@@ -436,23 +434,26 @@ make_http_response(Server *serv, Http_Request *req)
         }
 
         if (index_found == 0) {
-            buf_write_dirlisting_http(res->buf, real_path, decoded_http_path);
+            buf_write_dirlisting_http(
+                &res->body,
+                real_path,
+                decoded_http_path);
             return fulfill(&dq, res);
         }
     }
 
     // We're serving a single file
-    buf_append_str(res->buf, "HTTP/1.1 200\r\n");
+    buf_append_str(&res->head, "HTTP/1.1 200\r\n");
 
     // Keep-Alive
     /*buf_sprintf(
-        res->buf,
+        &res->head,
         "Keep-Alive: timeout=%d\r\n",
         serv->conf.timeout_secs);*/
 
     // Last-Modified
     char tmp[DATE_LEN * 10];
-    buf_sprintf(res->buf,
+    buf_sprintf(&res->head,
                 "Last-Modified: %s\r\n",
                 to_rfc1123_date(tmp, res->file.last_mod));
 
@@ -460,45 +461,45 @@ make_http_response(Server *serv, Http_Request *req)
     // TODO: replace this with a table lookup
     if (strstr(res->file.name, ".html")) {
         buf_append_str(
-            res->buf,
+            &res->head,
             "Content-Type: text/html; charset=UTF-8\r\n");
     } else if (strstr(res->file.name, ".jpg")) {
         buf_append_str(
-            res->buf,
+            &res->head,
             "Content-Type: image/jpeg\r\n");
     } else if (strstr(res->file.name, ".pdf")) {
         buf_append_str(
-            res->buf,
+            &res->head,
             "Content-Type: application/pdf\r\n");
     } else if (strstr(res->file.name, ".css")) {
         buf_append_str(
-            res->buf,
+            &res->head,
             "Content-Type: text/css\r\n");
     } else {
         buf_append_str(
-            res->buf,
+            &res->head,
             "Content-Type: text/plain; charset=UTF-8\r\n");
     }
 
     // Content-Length
-    buf_sprintf(res->buf,
+    buf_sprintf(&res->head,
                 "Content-Length: %ld\r\n",
                 res->file.size);
 
     //ascii_dump_buf(stdout, res.data, res.n_items);
 
     // Last empty line after headers
-    buf_append_str(res->buf, "\r\n");
+    buf_append_str(&res->head, "\r\n");
 
     // Write file contents
-    int code = buf_append_file_contents(res->buf, &(res->file), real_path);
+    /*int code = buf_append_file_contents(res->buf, &(res->file), real_path);
     if (code == -1 || code == 0) {
         // TODO: handle this failure better (with a 500 err code).
         fprintf(stderr,
                 "buf_append_file_contents failed with code %i\n",
                 code);
         return fulfill(&dq, res);
-    }
+    }*/
 
     return fulfill(&dq, res);
 }
@@ -547,7 +548,7 @@ free_http_response(Http_Response *res)
     if (!res) return;
 
     free_buf(res->buf);
-    // free(res->error);
+    free_file_parts(&res->file);
     free(res);
     res = NULL;
 }

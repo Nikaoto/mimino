@@ -259,21 +259,21 @@ write_headers(Connection *conn)
 {
     int sent = send_buf(
         conn->fd,
-        conn->res->buf->data + conn->res->buf_nbytes_sent,
-        conn->res->buf->n_items - conn->res->buf_nbytes_sent);
+        conn->res->head.data + conn->res->head_nbytes_sent,
+        conn->res->head.n_items - conn->res->head_nbytes_sent);
 
     // Fatal error, no use retrying
     if (sent == -1) {
-        conn->res->error = "Other error";
+        conn->res->error = "write_headers(): Other error";
         return W_FATAL_ERROR;
     }
 
-    conn->res->buf_nbytes_sent += sent;
+    conn->res->head_nbytes_sent += sent;
 
     // Retry later if not sent fully
-    if (conn->res->buf_nbytes_sent < conn->res->buf->n_items) {
+    if (conn->res->head_nbytes_sent < conn->res->head.n_items) {
         if (conn->write_tries_left == 0) {
-            conn->res->error = "Max write tries reached";
+            conn->res->error = "write_headers(): Max write tries reached";
             return W_MAX_TRIES;
         }
         conn->write_tries_left--;
@@ -287,8 +287,83 @@ write_headers(Connection *conn)
 int
 write_body(Connection *conn)
 {
-    // TODO:
-    return W_FATAL_ERROR;
+    if (conn->res->body.data == NULL) {
+        printf("Eror: Response for conn with fd %d has empty body\n",
+            conn->fd);
+        return W_FATAL_ERROR;
+    }
+
+    int sent = send_buf(
+        conn->fd,
+        conn->res->body.data + conn->res->body_nbytes_sent,
+        conn->res->body.n_items - conn->res->body_nbytes_sent);
+
+    // Fatal error, no use retrying
+    if (sent == -1) {
+        conn->res->error = "write_body(): Other error";
+        return W_FATAL_ERROR;
+    }
+
+    conn->res->body_nbytes_sent += sent;
+
+    // Retry later if not sent fully
+    if (conn->res->body_nbytes_sent < conn->res->body.n_items) {
+        if (conn->write_tries_left == 0) {
+            conn->res->error = "write_body(): Max write tries reached";
+            return W_MAX_TRIES;
+        }
+        conn->write_tries_left--;
+
+        return W_PARTIAL_WRITE;
+    }
+
+    return W_COMPLETE_WRITE;
+}
+
+int
+write_file(Connection *conn)
+{
+    if (conn->res->file.is_null) {
+        printf("Eror: File is null for conn with fd %d\n",
+            conn->fd);
+        return W_FATAL_ERROR;
+    }
+
+    char file_buf[4096];
+    size_t file_buf_len = sizeof(file_buf) * sizeof(char);
+
+    // TODO: reuse file handle if partial file writes happen
+    // Open file
+    FILE *file_handle = fopen(file_name, "r");
+    if (file_handle == NULL) {
+        perror("fopen()");
+        return W_FATAL_ERROR;
+    }
+
+    // Start reading the file and sending it.
+    // This works without loading the entire file into memory.
+    while (1) {
+        size_t bytes_read = fread(file_buf, 1, file_buf_len, file_handle);
+        if (bytes_read == 0) {
+            if (ferror(file_handle)) {
+                fprintf(stdout, "Error when fread()ing file %s\n", file_name);
+            }
+            break;
+        }
+
+        int status = send_buf(newsock, file_buf, bytes_read);
+        if (status == -1) {
+            return W_FATAL_ERROR;
+        }
+
+        if (bytes_read < file_buf_len) {
+            // fread() will return 0, so if we break here, we avoid calling it
+            break;
+        }
+    };
+
+    fclose(file_handle);
+    fprintf(stdout, "Finished fread()ing\n");
 }
 
 void
@@ -481,9 +556,20 @@ do_conn_state(Server *serv, nfds_t idx)
             }
             break;
         }
+        break;
     }
 
     case CONN_STATE_WRITING_BODY: {
+        if (!(pfd->revents & POLLOUT))
+            return 0;
+
+        int status;
+        if (conn->res->file.is_null) {
+            status = write_body(conn);
+        } else {
+            status = write_file(conn);
+        }
+
         int status = write_body(conn);
         switch (status) {
         case W_PARTIAL_WRITE:

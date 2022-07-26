@@ -35,7 +35,7 @@ void free_file_list(File_List *fl);
 char* get_base_name(char *path);
 char* cleanup_path(char *path);
 char* resolve_path(char *p1, char *p2);
-int read_file_info(File *f, char *path, char* base_name);
+int read_file_info(File *f, char *path);
 char* get_file_type_suffix(File *f);
 char* get_human_file_size(off_t size);
 char* get_human_file_perms(File *f);
