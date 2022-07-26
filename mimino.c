@@ -20,6 +20,8 @@
 #include <poll.h>
 #include <dirent.h>
 #include "mimino.h"
+#include "xmalloc.h"
+#include "defer.h"
 
 int sockbind(struct addrinfo *ai);
 int send_buf(int sock, char *buf, size_t nbytes);
@@ -33,8 +35,7 @@ int
 buf_grow(Buffer *b, size_t min_growth)
 {
     size_t new_size = b->n_alloc + MAX(min_growth, BUFFER_GROWTH);
-    char *ptr = realloc(b->data, new_size);
-    if (!ptr) return 0;
+    char *ptr = xrealloc(b->data, new_size);
     b->n_alloc = new_size;
     b->data = ptr;
     return 1;
@@ -232,13 +233,13 @@ init_server(char *port, struct addrinfo *server_addrinfo)
 
         switch (rp->ai_family) {
         case AF_INET:
-            ipv4_addrinfos = realloc(ipv4_addrinfos,
+            ipv4_addrinfos = xrealloc(ipv4_addrinfos,
                                      (ipv4_addrinfos_i + 1) * sizeof(ipv4_addrinfos));
             ipv4_addrinfos[ipv4_addrinfos_i] = rp;
             ipv4_addrinfos_i++;
             break;
         case AF_INET6:
-            ipv6_addrinfos = realloc(ipv6_addrinfos,
+            ipv6_addrinfos = xrealloc(ipv6_addrinfos,
                                      (ipv6_addrinfos_i + 1) * sizeof(ipv6_addrinfos));
             ipv6_addrinfos[ipv6_addrinfos_i] = rp;
             ipv6_addrinfos_i++;
@@ -406,39 +407,7 @@ file_list_to_html(char *req_path, File_List *fl, Buffer *buf)
     return succ;
 }
 
-typedef struct {
-    void (*func_arr[64])(void*);
-    void *arg_arr[64];
-    int n_items;
-} Defer_Queue;
-
-#define NULL_DEFER_QUEUE ((Defer_Queue) {.n_items = 0});
-
-void
-defer(Defer_Queue *q, void (func)(void*), void *arg)
-{
-    if (q->n_items >= (int) sizeof(q->arg_arr)) {
-        fprintf(stderr, "FATAL ERR: defer queue overflow %d\n", q->n_items);
-        return;
-    }
-
-    q->func_arr[q->n_items] = func;
-    q->arg_arr[q->n_items] = arg;
-    q->n_items++;
-}
-
-void*
-fulfill(Defer_Queue *q, void* return_value)
-{
-    for (int i = q->n_items - 1; i > 0; i--) {
-        (q->func_arr[i])(q->arg_arr[i]);
-    }
-
-    return return_value;
-}
-
 // TODO: make write_response work with poll() loop so that it can resume sending where it left off.
-// TODO: clean up the gotos
 // Return 1 if done writing completely.
 // Return 0 if an incomplete write happened.
 // Return -1 on fatal error or max retry reached.
@@ -453,16 +422,16 @@ write_response(Server *serv, Connection *conn)
     if (!path) return -1;
     defer(&dq, free, path);
 
-    printf("serve path: %s\n", serv->serve_path);
-    printf("request path: %s\n", conn->req->path);
-    printf("resolved path: %s\n", path);
+    /* printf("serve path: %s\n", serv->serve_path); */
+    /* printf("request path: %s\n", conn->req->path); */
+    /* printf("resolved path: %s\n", path); */
 
-    conn->res_buf = malloc(sizeof(conn->res_buf));
+    conn->res_buf = xmalloc(sizeof(conn->res_buf));
     if (!conn->res_buf) return fulfill(&dq, -1);
     defer(&dq, free, conn->res_buf);
 
     *(conn->res_buf) = (Buffer) {
-        .data = malloc(RES_BUF_SIZE),
+        .data = xmalloc(RES_BUF_SIZE),
         .n_items = 0,
         .n_alloc = RES_BUF_SIZE,
     };
@@ -527,7 +496,6 @@ write_response(Server *serv, Connection *conn)
             return fulfill(&dq, -1);
         }
 
-        printf("mark\n");
         fulfill(&dqfl, NULL);
 
         // Send res
@@ -538,7 +506,7 @@ write_response(Server *serv, Connection *conn)
     }
 
     // We're serving a file
-    printf("We're serving the file %s\n", file.name);
+    // printf("We're serving the file %s\n", file.name);
     if (strstr(file.name, ".html")) {
         buf_append_str(conn->res_buf,
                        "Content-Type: text/html; charset=UTF-8\r\n");
