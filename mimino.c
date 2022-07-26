@@ -31,9 +31,6 @@ void hex_dump_line(FILE *stream, char *buf, size_t buf_size, size_t width);
 void dump_data(FILE *stream, char *buf, size_t bufsize, size_t nbytes_recvd);
 void ascii_dump_buf(FILE *stream, char *buf, size_t buf_size);
 
-static time_t time_now;
-static Poll_Queue poll_queue;
-
 void
 print_server_config(Server_Config *conf)
 {
@@ -205,8 +202,6 @@ read_request(Connection *conn)
         return 0;
     }
 
-    conn->last_active = time_now; // TODO: add time_now to Server struct
-
     //dump_data(stdout,
     //          conn->req->buf->data + conn->req->buf->n_items,
     //          n,
@@ -229,7 +224,7 @@ read_request(Connection *conn)
 // Return 0 if an incomplete write happened.
 // Return -1 on fatal error or max retry reached.
 int
-write_response(Server *serv, Connection *conn)
+write_response(Connection *conn)
 {
     int sent = send_buf(
         conn->fd,
@@ -260,12 +255,8 @@ write_response(Server *serv, Connection *conn)
     return 1;
 }
 
-/*
-  TODO: think of a better way to close a connection by passing an actual
-  Connection struct or a Server struct.
-*/
 void
-close_connection(Poll_Queue *pq, nfds_t i)
+close_connection(Server *s, nfds_t i)
 {
     /*
       No need to check for errno here as most sane OSes close the
@@ -273,21 +264,23 @@ close_connection(Poll_Queue *pq, nfds_t i)
       with the same fd might close some other file. For more info
       read close(2) manual.
     */
-    if (close(pq->pollfds[i].fd) == -1) {
+    Poll_Queue *q = &(s->queue);
+
+    if (close(q->pollfds[i].fd) == -1) {
         perror("close()");
     }
 
-    pq->conns[i].status = CONN_STATUS_CLOSED;
-    pq->pollfds[i].events = 0;
+    q->conns[i].status = CONN_STATUS_CLOSED;
+    q->pollfds[i].events = 0;
 
     // Copy last pollfd and conn onto current pollfd and conn
-    if (i != pq->pollfd_count - 1) {
-        pq->pollfds[i] = pq->pollfds[pq->pollfd_count - 1];
-        pq->conns[i] = pq->conns[pq->pollfd_count - 1];
-        pq->conns[i].pollfd = pq->pollfds + i;
+    if (i != q->pollfd_count - 1) {
+        q->pollfds[i] = q->pollfds[q->pollfd_count - 1];
+        q->conns[i] = q->conns[q->pollfd_count - 1];
+        q->conns[i].pollfd = q->pollfds + i;
     }
 
-    pq->pollfd_count--;
+    q->pollfd_count--;
 }
 
 int
@@ -398,22 +391,22 @@ main(int argc, char **argv)
         return 1;
     }
 
-    // Add listen_sock to poll_queue
-    poll_queue.pollfds[0] = (struct pollfd) {
+    // Add listen_sock to poll queue
+    serv.queue.pollfds[0] = (struct pollfd) {
         .fd = listen_sock,
         .events = POLLIN,
         .revents = 0,
     };
-    poll_queue.pollfd_count = 1;
+    serv.queue.pollfd_count = 1;
     // NOTE: This connection won't be used; it's the listen socket
-    poll_queue.conns[0] = make_connection(listen_sock,
-                                          &poll_queue.pollfds[0],
+    serv.queue.conns[0] = make_connection(listen_sock,
+                                          &serv.queue.pollfds[0],
                                           (time_t) 0);
 
     // Main loop
     while (1) {
-        time_now = time(NULL);
-        int nfds = poll(poll_queue.pollfds, poll_queue.pollfd_count, POLL_TIMEOUT_MS);
+        serv.time_now = time(NULL);
+        int nfds = poll(serv.queue.pollfds, serv.queue.pollfd_count, POLL_TIMEOUT_MS);
 
         if (nfds == -1) {
             perror("poll() returned -1");
@@ -422,20 +415,20 @@ main(int argc, char **argv)
 
         if (serv.conf.verbose) {
             printf("\n\nSERVER STATE BEFORE ITERATION:\n");
-            printf("time_now: %ld\n", time_now);
-            printf("pollfd_count: %zu\n", poll_queue.pollfd_count);
-            for (nfds_t i = 1; i < poll_queue.pollfd_count; i++) {
+            printf("time_now: %ld\n", serv.time_now);
+            printf("pollfd_count: %zu\n", serv.queue.pollfd_count);
+            for (nfds_t i = 1; i < serv.queue.pollfd_count; i++) {
                 printf("Connection %zu:\n", i);
-                print_connection(poll_queue.pollfds + i,
-                                 poll_queue.conns + i);
+                print_connection(serv.queue.pollfds + i,
+                                 serv.queue.conns + i);
                 printf("------------\n");
             }
         }
 
         // Accept new connection
         // pollfds[0].fd is the listen_sock
-        if (poll_queue.pollfds[0].revents & POLLIN) {
-            if (poll_queue.pollfd_count >= MAX_CONN) {
+        if (serv.queue.pollfds[0].revents & POLLIN) {
+            if (serv.queue.pollfd_count >= MAX_CONN) {
                 fprintf(
                     stderr,
                     "poll queue reached maximum capacity of %d\n",
@@ -443,18 +436,16 @@ main(int argc, char **argv)
             } else {
                 int newsock = accept_new_conn(listen_sock);
                 if (newsock != -1) {
-                    // Update poll_queue
-                    poll_queue.pollfd_count++;
-                    int i = poll_queue.pollfd_count - 1;
-                    poll_queue.pollfds[i] = (struct pollfd) {
+                    // Update poll queue
+                    serv.queue.pollfd_count++;
+                    int i = serv.queue.pollfd_count - 1;
+                    serv.queue.pollfds[i] = (struct pollfd) {
                         .fd = newsock,
                         .events = POLLIN,
                         .revents = 0,
                     };
-                    poll_queue.conns[i] =
-                        make_connection(newsock,
-                                        poll_queue.pollfds + i,
-                                        time_now);
+                    serv.queue.conns[i] =
+                        make_connection(newsock, &serv, i);
 
                     // Restart loop to prioritize new connections
                     continue;
@@ -462,16 +453,16 @@ main(int argc, char **argv)
             }
         }
 
-        // Iterate poll_queue (starts from 1, skipping listen_sock)
-        for (nfds_t fd_i = 1; fd_i < poll_queue.pollfd_count; fd_i++) {
-            Connection *conn = &poll_queue.conns[fd_i];
+        // Iterate poll queue (starts from 1, skipping listen_sock)
+        for (nfds_t fd_i = 1; fd_i < serv.queue.pollfd_count; fd_i++) {
+            Connection *conn = &(serv.queue.conns[fd_i]);
 
             // Drop connection if it timed out
-            if (conn->last_active + TIMEOUT_SECS <= time_now) {
+            if (conn->last_active + TIMEOUT_SECS <= serv.time_now) {
                 conn->status = CONN_STATUS_TIMED_OUT;
                 fprintf(stdout, "Connection %ld timed out\n", fd_i);
                 free_connection_parts(conn);
-                close_connection(&poll_queue, fd_i);
+                close_connection(&serv, fd_i);
                 continue;
             }
 
@@ -492,8 +483,10 @@ main(int argc, char **argv)
                 if (status == -1) {
                     // Reading failed
                     free_connection_parts(conn);
-                    close_connection(&poll_queue, fd_i);
+                    close_connection(&serv.queue, fd_i);
                 } else if (status == 1) {
+                    conn->last_active = serv.time_now;
+
                     // Reading done, parse request
                     parse_http_request(conn->req);
                     //print_http_request(stderr, req);
@@ -513,7 +506,7 @@ main(int argc, char **argv)
                             !conn->req->path ||
                             !conn->req->host) {
                             free_connection_parts(conn);
-                            close_connection(&poll_queue, fd_i);
+                            close_connection(&serv.queue, fd_i);
                         }
                     }
 
@@ -525,7 +518,9 @@ main(int argc, char **argv)
 
                     // Start writing
                     conn->status = CONN_STATUS_WRITING;
-                    poll_queue.pollfds[fd_i].events = POLLOUT;
+                    serv.queue.pollfds[fd_i].events = POLLOUT;
+                } else if (status == 0) {
+                    conn->last_active = serv.time_now;
                 }
                 break;
             }
@@ -534,7 +529,7 @@ main(int argc, char **argv)
                     continue;
 
                 if (!conn->res) {
-                    conn->last_active = time_now;
+                    conn->last_active = serv.time_now;
                     conn->res = make_http_response(&serv, conn->req);
 
                     if (serv.conf.verbose) {
@@ -545,20 +540,20 @@ main(int argc, char **argv)
                     }
                 }
 
-                int status = write_response(&serv, conn);
+                int status = write_response(conn);
                 if (status == 1) {
-                    conn->last_active = time_now;
+                    conn->last_active = serv.time_now;
                     if (!conn->keep_alive) {
                         // Close when done.
                         // Even HTTP errors like 5xx or 4xx go here.
                         free_connection_parts(conn);
-                        close_connection(&poll_queue, fd_i);
+                        close_connection(&serv, fd_i);
                     } else {
                         // TODO: Recycle connection here
                         //   * zero the connection
                         //   * set its status to CONN_READING
                         free_connection_parts(conn);
-                        close_connection(&poll_queue, fd_i);
+                        close_connection(&serv, fd_i);
                     }
                 } else if (status == -1) {
                     // Fatal error, can't send data.
@@ -567,7 +562,7 @@ main(int argc, char **argv)
                                 "Error when writing response: %s\n",
                                 conn->req->error);
                         free_connection_parts(conn);
-                        close_connection(&poll_queue, fd_i);
+                        close_connection(&serv, fd_i);
                     }
                 }
                 break;
@@ -577,18 +572,18 @@ main(int argc, char **argv)
                 break;
             case CONN_STATUS_CLOSED:
                 fprintf(stderr, "WARN: connection not closed\n");
-                close_connection(&poll_queue, fd_i);
+                close_connection(&serv, fd_i);
                 break;
             }
         }
 
         if (serv.conf.verbose) {
             printf("\n\nSERVER STATE AFTER ITERATION:\n");
-            printf("pollfd_count: %zu\n", poll_queue.pollfd_count);
-            for (nfds_t i = 1; i < poll_queue.pollfd_count; i++) {
+            printf("pollfd_count: %zu\n", serv.queue.pollfd_count);
+            for (nfds_t i = 1; i < serv.queue.pollfd_count; i++) {
                 printf("Connection %zu:\n", i);
-                print_connection(poll_queue.pollfds + i,
-                                 poll_queue.conns + i);
+                print_connection(serv.queue.pollfds + i,
+                                 serv.queue.conns + i);
                 printf("------------\n");
             }
         }

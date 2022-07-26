@@ -3,18 +3,18 @@
 #include "http.h"
 
 Connection
-make_connection(int fd, struct pollfd *pfd, time_t t)
+make_connection(int fd, Server *s, nfds_t i)
 {
     return (Connection) {
         .fd = fd,
-        .pollfd = pfd,
+        .pollfd = s->queue.pollfds + i,
         .status = CONN_STATUS_READING,
         .req = NULL,
         .res = NULL,
         .read_tries_left = 5,
         .write_tries_left = 5,
         .keep_alive = 1,
-        .last_active = t,
+        .last_active = s->time_now,
     };
 }
 

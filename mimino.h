@@ -56,6 +56,14 @@ typedef struct {
     time_t last_active;
 } Connection;
 
+#define MAX_CONN 20
+
+typedef struct {
+    struct pollfd pollfds[MAX_CONN];
+    nfds_t pollfd_count;
+    Connection conns[MAX_CONN];
+} Poll_Queue;
+
 typedef struct {
     int verbose;
     int quiet;
@@ -71,17 +79,11 @@ typedef struct {
 
 typedef struct {
     Server_Config conf;
+    Poll_Queue queue;
+    time_t time_now;
     int sock;
     char ip[INET6_ADDRSTRLEN];
     struct addrinfo addrinfo;
 } Server;
-
-#define MAX_CONN 20
-
-typedef struct {
-    struct pollfd pollfds[MAX_CONN];
-    nfds_t pollfd_count;
-    Connection conns[MAX_CONN];
-} Poll_Queue;
 
 #endif // _MIMINO_H
