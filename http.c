@@ -23,6 +23,26 @@ can_handle_http_ver(char *ver)
     return !strcmp("0.9", ver) || !strcmp("1.0", ver) || !strcmp("1.1", ver);
 }
 
+// Return 1 if buf has \r\n\r\n at the end
+// Return 0 otherwise
+int
+is_http_end(char *buf, size_t size)
+{
+    size_t i = size - 1; // Last char index
+
+    if (size < 4) return 0;
+
+    // Ignore trailing null
+    if (buf[i] == '\0') {
+        if (size < 5) return 0;
+        i--;
+    }
+
+    return
+        buf[i-3] == '\r' && buf[i-2] == '\n' && 
+        buf[i-1] == '\r' && buf[i] == '\n';
+}
+
 // Parses string buf into a request struct
 Http_Request*
 parse_http_request(char *buf)
@@ -168,6 +188,7 @@ parse_http_request(char *buf)
 void
 free_http_request(Http_Request *req)
 {
+    if (!req) return;
 
     free(req->method);
     free(req->path);
@@ -249,21 +270,22 @@ file_list_to_html(Buffer *buf, char *req_path, File_List *fl)
 }
 
 Http_Response*
-construct_http_response(char *serve_path, Http_Request *req)
+make_http_response(Server *serv, Http_Request *req)
 {
     Defer_Queue dq = NULL_DEFER_QUEUE;
     File file;
 
     Http_Response *res = xmalloc(sizeof(Http_Response));
     res->buf = new_buf(RES_BUF_SIZE);
+    res->nbytes_sent = 0;
     res->error = NULL;
 
-    char *path = resolve_path(serve_path, req->path);
+    char *path = resolve_path(serv->serve_path, req->path);
     defer(&dq, free, path);
 
-    printf("serve path: %s\n", serve_path);
-    printf("request path: %s\n", req->path);
-    printf("resolved path: %s\n", path);
+    /* printf("serve path: %s\n", serv->serve_path); */
+    /* printf("request path: %s\n", req->path); */
+    /* printf("resolved path: %s\n", path); */
 
     // Find out if we're listing a dir or serving a file
     char *base_name = get_base_name(path);
@@ -344,7 +366,19 @@ construct_http_response(char *serve_path, Http_Request *req)
 
 void print_http_response(FILE *stream, Http_Response *res)
 {
-    for (size_t i = 0; i < res->buf->n_items; i++) {
+
+    if (!res) {
+        printf("Response empty!\n");
+        return;
+    }
+
+    size_t n_items = 128;
+
+    if (res->buf->n_items < n_items) {
+        n_items = res->buf->n_items;
+    }
+
+    for (size_t i = 0; i < n_items; i++) {
         switch (res->buf->data[i]) {
         case '\n':
             fprintf(stream, "\\n\n");
@@ -360,11 +394,18 @@ void print_http_response(FILE *stream, Http_Response *res)
             break;
         }
     }
+
+    if (res->buf->n_items > n_items) {
+        fprintf(stream,
+                "\n[RESPONSE TRUNCATED]\n");
+    }
 }
 
 void
 free_http_response(Http_Response *res)
 {
+    if (!res) return;
+
     free_buf(res->buf);
     // free(res->error);
     free(res);

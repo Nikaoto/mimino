@@ -33,8 +33,40 @@ void dump_data(FILE *stream, char *buf, size_t bufsize, size_t nbytes_recvd);
 void ascii_dump_buf(FILE *stream, char *buf, size_t buf_size);
 
 void
+print_connection(struct pollfd *pfd, Connection *conn)
+{
+    if (!conn) {
+        printf("(Connection) NULL\n");
+        return;
+    }
+
+    printf("(struct pollfd) {\n");
+    printf("  .fd = %d,\n", pfd->fd);
+    printf("  .events = %0X,\n", pfd->events);
+    printf("  .revents = %0X,\n", pfd->revents);
+    printf("}\n");
+
+    printf("(Connection) {\n");
+    printf("  .status = %i,\n", conn->status);
+    printf("  .read_tries_left = %d,\n", conn->read_tries_left);
+    printf("  .write_tries_left = %d,\n", conn->write_tries_left);
+    printf("  .req = \n");
+    print_http_request(stdout, conn->req);
+    printf("  .req_buf = \n");
+    dump_data(stdout,
+              conn->req_buf,
+              conn->req_buf_i,
+              DUMP_WIDTH);
+    printf("  .res = \n");
+    print_http_response(stdout, conn->res);
+    printf("}\n");
+}
+
+void
 free_connection_parts(Connection *conn)
 {
+    if (!conn) return;
+
     free_http_request(conn->req);
     free_http_response(conn->res);
     //free(conn);
@@ -141,6 +173,7 @@ init_server(char *port, struct addrinfo *server_addrinfo)
     return bound ? sockfd : -1;
 }
 
+// Returns the socket fd of the new connection
 int
 accept_new_conn(int listen_sock)
 {
@@ -170,8 +203,8 @@ accept_new_conn(int listen_sock)
     inet_ntop(their_addr.ss_family,
               get_in_addr((struct sockaddr *)&their_addr),
               their_ip_str, sizeof(their_ip_str));
-    /* printf("Got connection from %s:%d\n", their_ip_str, */
-    /*        ntohs(get_in_port((struct sockaddr *)&their_addr))); */
+    printf("Got connection from %s:%d\n", their_ip_str,
+           ntohs(get_in_port((struct sockaddr *)&their_addr)));
 
     return newsock;
 }
@@ -182,8 +215,11 @@ accept_new_conn(int listen_sock)
 int
 read_request(Connection *conn)
 {
-    int n = recv(conn->fd, conn->req_buf + conn->req_buf_i,
-                 sizeof(conn->req_buf) - conn->req_buf_i, 0);
+    // FIXME: we can't read requests larger than REQ_BUF_SIZE
+    int n = recv(conn->fd,
+                 conn->req_buf + conn->req_buf_i,
+                 sizeof(conn->req_buf) - conn->req_buf_i,
+                 0);
 
     if (n < 0) {
         if (errno == EWOULDBLOCK || errno == EAGAIN || errno == EINTR) {
@@ -192,39 +228,54 @@ read_request(Connection *conn)
                 return -1;
             }
             conn->read_tries_left--;
-        } else { // Some other ESOMETHING error
-            perror("recv()");
-            return -1;
         }
+        perror("recv()");
         return 0;
     }
 
     //dump_data(stdout, conn->req_buf + conn->req_buf_i, n, DUMP_WIDTH);
-
-    // NOTE: The "\r\n\r\n" might be too limited
-    if (n == 0 || strstr(conn->req_buf, "\r\n\r\n")) {
-        // Finished reading
-        return 1;
-    }
-
     conn->req_buf_i += n;
+
+    // Finished reading
+    if (n == 0 || is_http_end(conn->req_buf, conn->req_buf_i + 1))
+        return 1;
+
     return 0;
 }
 
-// TODO: make write_response work with poll() loop so that it can resume sending where it left off.
 // Return 1 if done writing completely.
 // Return 0 if an incomplete write happened.
 // Return -1 on fatal error or max retry reached.
 int
 write_response(Server *serv, Connection *conn)
 {
-    // TODO: make sure not to replicate work on retries
-    int result = send_buf(conn->fd,
-                          conn->res->buf->data,
-                          conn->res->buf->n_items);
-    //dump_data(stdout, res.data, res.n_items, DUMP_WIDTH);
+    int sent = send_buf(
+        conn->fd,
+        conn->res->buf->data + conn->res->nbytes_sent,
+        conn->res->buf->n_items);
 
-    return result;
+    // Fatal error, no use retrying
+    if (sent == -1) {
+        conn->res->error = "Other error";
+        return -1;
+    }
+
+    conn->res->nbytes_sent += sent;
+
+    // Retry later if not sent fully
+    if (conn->res->nbytes_sent < conn->res->buf->n_items) {
+        if (conn->write_tries_left == 0) {
+            conn->res->error = "Max write tries reached";
+            return -1;
+        }
+        conn->write_tries_left--;
+
+        return 0;
+    }
+
+    // Fully sent
+    //dump_data(stdout, res.data, res.n_items, DUMP_WIDTH);
+    return 1;
 }
 
 /*
@@ -270,7 +321,7 @@ main(int argc, char **argv)
         port = argv[2];
     }
 
-    // TODO: fill with data here later
+    // TODO: fill with data here later (like CLI configs)
     Server serv = {0};
     serv.serve_path = path;
     serv.port = port;
@@ -300,7 +351,7 @@ main(int argc, char **argv)
         return 1;
     }
 
-    // Add listen_sock to poll_queue it
+    // Add listen_sock to poll_queue
     poll_queue.pollfds[0] = (struct pollfd) {
         .fd = listen_sock,
         .events = POLLIN,
@@ -324,38 +375,45 @@ main(int argc, char **argv)
             continue;
         }
 
+        printf("\n\nSERVER STATE BEFORE ITERATION:\n");
+        printf("pollfd_count: %zu\n", poll_queue.pollfd_count);
+        for (nfds_t i = 1; i < poll_queue.pollfd_count; i++) {
+            printf("Connection %zu:\n", i);
+            print_connection(poll_queue.pollfds + i,
+                             poll_queue.conns + i);
+            printf("------------\n");
+        }
+
         // Accept new connection
         // pollfds[0].fd is the listen_sock
         if (poll_queue.pollfds[0].revents & POLLIN) {
-            int newsock = accept_new_conn(listen_sock);
-            if (newsock != -1) {
-                // Update poll_queue
-                poll_queue.pollfd_count++;
-                int i = poll_queue.pollfd_count - 1;
-                /*
-                  TODO: check bounds for the arrays. If not fixed,
-                  ths will blow up.
+            if (poll_queue.pollfd_count >= MAX_CONN) {
+                fprintf(
+                    stderr,
+                    "poll queue reached maximum capacity of %d\n",
+                    MAX_CONN);
+            } else {
+                int newsock = accept_new_conn(listen_sock);
+                if (newsock != -1) {
+                    // Update poll_queue
+                    poll_queue.pollfd_count++;
+                    int i = poll_queue.pollfd_count - 1;
+                    poll_queue.pollfds[i] = (struct pollfd) {
+                        .fd = newsock,
+                        .events = POLLIN,
+                        .revents = 0,
+                    };
+                    poll_queue.conns[i] =
+                        new_connection(newsock, poll_queue.pollfds + i);
 
-                  Also, make sure to grow conns array in tandem
-                  with pollfds array.
-                 */
-                poll_queue.pollfds[i] = (struct pollfd) {
-                    .fd = newsock,
-                    .events = POLLIN,
-                    .revents = 0,
-                };
-                poll_queue.conns[i] =
-                    new_connection(newsock, &poll_queue.pollfds[i]);
-
-                // Restart loop to prioritize new connections
-                continue;
+                    // Restart loop to prioritize new connections
+                    continue;
+                }
             }
         }
 
-        nfds_t open_conn_count = poll_queue.pollfd_count;
-
         // Iterate poll_queue (starts from 1, skipping listen_sock)
-        for (nfds_t fd_i = 1; fd_i < open_conn_count; fd_i++) {
+        for (nfds_t fd_i = 1; fd_i < poll_queue.pollfd_count; fd_i++) {
             Connection *conn = &poll_queue.conns[fd_i];
 
             switch (conn->status) {
@@ -369,7 +427,7 @@ main(int argc, char **argv)
                     } else if (status == 1) {
                         // Reading done, parse request
                         Http_Request *req = parse_http_request(conn->req_buf);
-                        print_http_request(stdout, req);
+                        //print_http_request(stdout, req);
 
                         // Close on parse error
                         if (req->error) {
@@ -388,8 +446,11 @@ main(int argc, char **argv)
             case CONN_STATUS_WRITING:
                 if (conn->pollfd->revents & POLLOUT) {
                     if (!conn->res) {
-                        conn->res = construct_http_response(serv.serve_path, conn->req);
-                        //print_http_response(stdout, conn->res);
+                        conn->res = make_http_response(&serv, conn->req);
+                        printf("-----------------\n");
+                        print_http_request(stdout, conn->req);
+                        print_http_response(stdout, conn->res);
+                        printf("-----------------\n");
                     }
 
                     int status = write_response(&serv, conn);
@@ -399,10 +460,8 @@ main(int argc, char **argv)
                         free_connection_parts(conn);
                         close_connection(&poll_queue, fd_i);
                     } else if (status == -1) {
-                        // Fatal error encountered and can't send data.
-                        // TODO: use conn->res->error instead
-                        //       (After creating Http_Response struct)
-                        if (conn->req->error) {
+                        // Fatal error, can't send data.
+                        if (conn->res->error) {
                             fprintf(stdout,
                                     "Error when writing response: %s\n",
                                     conn->req->error);
@@ -420,6 +479,15 @@ main(int argc, char **argv)
                 close_connection(&poll_queue, fd_i);
                 break;
             }
+        }
+
+        printf("\n\nSERVER STATE AFTER ITERATION:\n");
+        printf("pollfd_count: %zu\n", poll_queue.pollfd_count);
+        for (nfds_t i = 1; i < poll_queue.pollfd_count; i++) {
+            printf("Connection %zu:\n", i);
+            print_connection(poll_queue.pollfds + i,
+                             poll_queue.conns + i);
+            printf("------------\n");
         }
     }
 
@@ -480,13 +548,14 @@ sockbind(struct addrinfo *ai)
     return s;
 }
 
-// Return 1 on success
-// Return 0 on nothing sent
-// Return -1 on error
+// Return number of bytes sent or -1 on error
 int
 send_buf(int sock, char *buf, size_t len)
 {
-    for (size_t nbytes_sent = 0; nbytes_sent < len;) {
+    size_t nbytes_sent;
+    int try = 5;
+
+    for (nbytes_sent = 0; nbytes_sent < len;) {
         int sent = send(sock, buf, len, 0);
         int saved_errno = errno;
         if (sent == -1) {
@@ -494,7 +563,9 @@ send_buf(int sock, char *buf, size_t len)
             switch (saved_errno) {
             case EINTR:
             case EAGAIN:
-                // FIXME: This can loop forever
+                if (--try <= 0) {
+                    return nbytes_sent;
+                }
                 continue;
             case ECONNRESET:
             default:
@@ -502,13 +573,13 @@ send_buf(int sock, char *buf, size_t len)
                 break;
             }
         } else if (sent == 0) {
-            return 0;
+            return nbytes_sent;
         } else {
             nbytes_sent += sent;
         }
     }
 
-    return 1;
+    return nbytes_sent;
 }
 
 void
@@ -570,8 +641,11 @@ ascii_dump_buf(FILE *stream, char *buf, size_t buf_size)
 void
 dump_data(FILE *stream, char *buf, size_t buf_size, size_t line_width)
 {
-    if (buf_size == 0)
+    if (buf_size == 0) {
+        fprintf(stream, "No data to dump!\n");
         return;
+    }
+
 #if HEXDUMP_DATA == 1
     for (size_t i = 0; i < buf_size; i += line_width) {
         hex_dump_line(stream, buf + i, MIN(buf_size - i, line_width),

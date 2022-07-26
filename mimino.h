@@ -10,7 +10,7 @@
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-#define REQ_BUF_SIZE 1024
+#define REQ_BUF_SIZE 8192
 #define RES_BUF_SIZE 8192
 
 #define HEXDUMP_DATA 1
@@ -36,6 +36,7 @@ typedef struct {
 typedef struct {
     //char *resolved_path;
     Buffer *buf;
+    size_t nbytes_sent;
     char *error;
 } Http_Response;
 
@@ -61,10 +62,12 @@ typedef struct {
     struct addrinfo addrinfo;
 } Server;
 
+#define MAX_CONN 20
+
 typedef struct {
-    struct pollfd pollfds[20];
+    struct pollfd pollfds[MAX_CONN];
     nfds_t pollfd_count;
-    Connection conns[20];
+    Connection conns[MAX_CONN];
 } Poll_Queue;
 
 #endif // _MIMINO_H
