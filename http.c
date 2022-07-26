@@ -366,6 +366,10 @@ make_http_response(Server *serv, Http_Request *req)
         buf_append_str(
             res->buf,
             "Content-Type: image/jpeg\r\n");
+    } else if (strstr(file.name, ".pdf")) {
+        buf_append_str(
+            res->buf,
+            "Content-Type: application/pdf\r\n");
     } else {
         buf_append_str(
             res->buf,
