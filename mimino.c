@@ -50,8 +50,8 @@ print_server_config(Server_Config *conf)
     printf("  .index = \"%s\",\n", conf->index);
     printf("  .suffix = \"%s\",\n", conf->suffix);
     printf("  .chroot_dir = \"%s\",\n", conf->chroot_dir);
-    printf("  .timeout_secs = \"%d\",\n", conf->timeout_secs);
-    printf("  .poll_interval_ms = \"%d\",\n", conf->poll_interval_ms);
+    printf("  .timeout_secs = %d,\n", conf->timeout_secs);
+    printf("  .poll_interval_ms = %d,\n", conf->poll_interval_ms);
     printf("}\n");
 }
 
@@ -488,14 +488,12 @@ main(int argc, char **argv)
             printf("pfd->fd: %d\n", pfd->fd);
 
             // Drop connection if it timed out
-            if (conn->status != CONN_STATUS_CLOSED &&
-                conn->last_active + serv.conf.timeout_secs <= serv.time_now) {
+            if ((conn->status != CONN_STATUS_CLOSED) &&
+                (conn->last_active + serv.conf.timeout_secs
+                   <= serv.time_now)) {
                 fprintf(stdout, "Connection %ld timed out\n", fd_i);
                 free_connection_parts(conn);
-                printf("serv.queue.pollfd_count: %ld\n", serv.queue.pollfd_count);
-                printf("close_conn\n");
                 close_connection(&serv, fd_i);
-                printf("serv.queue.pollfd_count: %ld\n", serv.queue.pollfd_count);
                 continue;
             }
 

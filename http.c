@@ -404,8 +404,12 @@ make_http_response(Server *serv, Http_Request *req)
             buf_sprintf(
                 res->buf,
                 "HTTP/1.1 301\r\n"
-                "Location:%s/\r\n\r\n",
+                "Location:%s/\r\n",
                 decoded_http_path);
+            buf_sprintf(
+                res->buf,
+                "Keep-Alive: timeout=%s\r\n\r\n",
+                serv->conf.timeout_secs);
             return fulfill(&dq, res);
         }
 
@@ -434,9 +438,14 @@ make_http_response(Server *serv, Http_Request *req)
 
     // We're serving a single file
     buf_append_str(res->buf, "HTTP/1.1 200\r\n");
-    // printf("We're serving the file %s\n", file.name);
 
-    // Write Content-Type header
+    // Keep-Alive
+    buf_sprintf(
+        res->buf,
+        "Keep-Alive: timeout=%s\r\n\r\n",
+        serv->conf.timeout_secs);
+
+    // Content-Type
     if (strstr(file.name, ".html")) {
         buf_append_str(
             res->buf,
@@ -459,12 +468,12 @@ make_http_response(Server *serv, Http_Request *req)
             "Content-Type: text/plain; charset=UTF-8\r\n");
     }
 
-    // Write Content-Length header
+    // Content-Length
     buf_sprintf(res->buf,
                 "Content-Length: %ld\r\n",
                 file.size);
 
-    // Write Last-Modified header
+    // Last-Modified
     char tmp[DATE_LEN * 10];
     buf_sprintf(res->buf,
                 "Last-Modified: %s\r\n",
@@ -472,7 +481,7 @@ make_http_response(Server *serv, Http_Request *req)
 
     //ascii_dump_buf(stdout, res.data, res.n_items);
 
-    // Last empty line before contents
+    // Last empty line before content
     buf_append_str(res->buf, "\r\n");
 
     // Write file contents
