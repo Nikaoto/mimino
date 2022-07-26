@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include "http.h"
 #include "ascii.h"
+#include "xmalloc.h"
 
 inline int
 is_valid_http_path_char(char c)
@@ -24,7 +25,7 @@ Http_Request*
 parse_http_request(const char *buf)
 {
     const char *p = buf;
-    Http_Request *req = malloc(sizeof(Http_Request));
+    Http_Request *req = xmalloc(sizeof(Http_Request));
     memset(req, 0, sizeof(*req));
 
     // Parse method
@@ -34,7 +35,7 @@ parse_http_request(const char *buf)
         req->error = "Invalid HTTP method";
         return req;
     }
-    req->method = strndup(p, (size_t) (buf - p));
+    req->method = xstrndup(p, (size_t) (buf - p));
 
     // Space
     if (*buf != ' ') {
@@ -51,7 +52,7 @@ parse_http_request(const char *buf)
         req->error = "Invalid path";
         return req;
     }
-    req->path = strndup(p, (size_t) (buf - p));
+    req->path = xstrndup(p, (size_t) (buf - p));
 
     // Space
     if (*buf != ' ') {
@@ -85,7 +86,7 @@ parse_http_request(const char *buf)
     buf++;
     while (is_digit(*buf))
         buf++;
-    req->version_number = strndup(p, (size_t) (buf - p));
+    req->version_number = xstrndup(p, (size_t) (buf - p));
     if(!can_handle_http_ver(req->version_number)) {
         req->error = "Can't handle given version";
         return req;
@@ -150,11 +151,11 @@ parse_http_request(const char *buf)
 
         // Check if we handle header
         if (!strncasecmp("Host", hn, 4)) {
-            req->host = strndup(hv, hv_len);
+            req->host = xstrndup(hv, hv_len);
         } else if (!strncasecmp("User-Agent", hn, 10)) {
-            req->user_agent = strndup(hv, hv_len);
+            req->user_agent = xstrndup(hv, hv_len);
         } else if (!strncasecmp("Accept", hn, 6)) {
-            req->accept = strndup(hv, hv_len);
+            req->accept = xstrndup(hv, hv_len);
         }
     }
 

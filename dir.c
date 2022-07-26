@@ -26,7 +26,7 @@ resolve_path(char *p1, char *p2)
     if (!strcmp(".", p2) || !strcmp("/", p2) ||
         !strcmp("./", p2) || !strcmp("/.", p2) ||
         !strcmp("./.", p2))
-        return strdup(p1);
+        return xstrdup(p1);
 
     // Allocate enough size
     size_t l1 = strlen(p1);
@@ -254,15 +254,14 @@ print_stat_error(int err, char *path, int is_link)
     }
 }
 
-// Return strdup-ed base name from given path.
+// Return xstrdup-ed base name from given path.
 char*
 get_base_name(char *path)
 {
     char *ret;
     size_t l = strlen(path);
     if (l == 1 && (*path == '/' || *path == '.')) {
-        ret = strdup(path);
-        return ret;            
+        return xstrdup(path);
     }
 
     char *copy_from = path + l - 1;
@@ -283,7 +282,7 @@ get_base_name(char *path)
         copy_len++;
     }
 
-    return strndup(copy_from, copy_len);
+    return xstrndup(copy_from, copy_len);
 }
 
 // Read data from file at given path into File struct.
@@ -305,11 +304,7 @@ read_file_info(File *f, char *path, char *base_name)
     }
 
     // Read data into *f
-    char *name = strdup(base_name);
-    if (!name) {
-        *f = NULL_FILE;
-        return -1;
-    }
+    char *name = xstrdup(base_name);
     *f = (File) {
         .name = name,
         .mode = sb.st_mode,
@@ -344,6 +339,7 @@ ls(char *path)
     char *dir;
     size_t dir_len;
     size_t path_len = strlen(path);
+
     // Copy path to dir and add trailing '/'
     if (path[path_len - 1] != '/') {
         dir = xmalloc(path_len + 1);
@@ -352,9 +348,8 @@ ls(char *path)
         dir[dir_len - 1] = '/';
         dir[dir_len] = '\0';
     } else {
-        dir = strdup(path);
+        dir = xstrdup(path);
         dir_len = path_len;
-        if (!dir) return NULL;
     }
 
     // Get dirent list

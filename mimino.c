@@ -115,7 +115,7 @@ buf_sprintf(Buffer *buf, char *fmt, ...)
 
     // Grow buffer if necessary
     if (buf->n_items + len > buf->n_alloc)
-        if (!buf_grow(buf, len)) return 0;
+        buf_grow(buf, len);
 
     va_start(fmtargs, fmt);
     vsnprintf(buf->data + buf->n_items, len, fmt, fmtargs);
@@ -142,7 +142,7 @@ buf_append_file_contents(Buffer *buf, File *f, char *path)
         perror("fopen()");
         return -1;
     }
-    
+
     while (1) {
         size_t bytes_read = fread(buf->data + buf->n_items, 1, f->size, fp);
         buf->n_items += bytes_read;
@@ -419,7 +419,6 @@ write_response(Server *serv, Connection *conn)
     int result = -1;
 
     char *path = resolve_path(serv->serve_path, conn->req->path);
-    if (!path) return -1;
     defer(&dq, free, path);
 
     /* printf("serve path: %s\n", serv->serve_path); */
@@ -427,7 +426,6 @@ write_response(Server *serv, Connection *conn)
     /* printf("resolved path: %s\n", path); */
 
     conn->res_buf = xmalloc(sizeof(conn->res_buf));
-    if (!conn->res_buf) return fulfill(&dq, -1);
     defer(&dq, free, conn->res_buf);
 
     *(conn->res_buf) = (Buffer) {
@@ -435,7 +433,6 @@ write_response(Server *serv, Connection *conn)
         .n_items = 0,
         .n_alloc = RES_BUF_SIZE,
     };
-    if (!conn->res_buf->data) return fulfill(&dq, -1);
     defer(&dq, free_buf, conn->res_buf);
 
     // Find out if we're listing a dir or serving a file
