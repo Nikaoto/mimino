@@ -30,6 +30,7 @@ void free_file(File *f);
 void free_file_parts(File *f);
 void free_file_list(File_List *fl);
 char* get_base_name(char *path);
+char* cleanup_path(char *path);
 char* resolve_path(char *p1, char *p2);
 int read_file_info(File *f, char *path, char* base_name);
 char* get_file_type_suffix(File *f);

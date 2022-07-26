@@ -18,6 +18,23 @@ print_file_info(FILE *f, File *file)
     fprintf(f, "}\n");
 }
 
+// Returns copy of path, but consecutive slashes removed
+char*
+cleanup_path(char *path)
+{
+    size_t l = strlen(path);
+    char *ret = xmalloc(l + 1);
+    char *rp = ret;
+    for (size_t i = 0; i < l + 1; i++) {
+        // Don't copy '/' if previous char was also '/'
+        if (i > 0 && path[i-1] == '/' && path[i] == '/')
+            continue;
+        *(rp++) = path[i];
+    }
+
+    return ret;
+}
+
 // Return a newly allocated string of p2 appended to p1.
 // Squeeze consecutive slashes together
 // Return NULL on error.

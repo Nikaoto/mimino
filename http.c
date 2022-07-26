@@ -223,9 +223,9 @@ print_http_request(FILE *f, Http_Request *req)
     fprintf(f, "}\n");
 }
 
-// req_path is the path inside the HTTP request
+// dir_path is the path of the directory containing the files
 void
-file_list_to_html(Buffer *buf, char *req_path, File_List *fl)
+file_list_to_html(Buffer *buf, char *dir_path, File_List *fl)
 {
     buf_append_str(
         buf,
@@ -243,7 +243,7 @@ file_list_to_html(Buffer *buf, char *req_path, File_List *fl)
 
         // Write file name
         buf_append_str(buf, "<tr><td><a href=\"");
-        buf_append_href(buf, f, req_path);
+        buf_append_href(buf, f, dir_path);
         buf_push(buf, '"');
         if (f->is_link && f->is_broken_link)
             buf_append_str(buf, " class=\"red\"");
@@ -280,11 +280,15 @@ make_http_response(Server *serv, Http_Request *req)
     res->nbytes_sent = 0;
     res->error = NULL;
 
-    char *path = resolve_path(serv->serve_path, req->path);
+    char *clean_http_path = cleanup_path(req->path);
+    defer(&dq, free, clean_http_path);
+
+    char *path = resolve_path(serv->serve_path, clean_http_path);
     defer(&dq, free, path);
 
     printf("serve path: %s\n", serv->serve_path);
     printf("request path: %s\n", req->path);
+    printf("clean request path: %s\n", clean_http_path);
     printf("resolved path: %s\n", path);
 
     // Find out if we're listing a dir or serving a file
@@ -323,7 +327,7 @@ make_http_response(Server *serv, Http_Request *req)
 
         // Write html into response buffer
         buf_append_str(res->buf, "HTTP/1.1 200\r\n\r\n");
-        file_list_to_html(res->buf, req->path, fl);
+        file_list_to_html(res->buf, clean_http_path, fl);
         buf_append_str(res->buf, "\r\n");
 
         fulfill(&dqfl, NULL);
