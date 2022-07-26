@@ -48,13 +48,14 @@ test_decode_url()
     #undef cmpstr
 }
 
-// Resets all .value and .err fields in given argdef array
+// Resets all .value, .bvalue and .err fields in given argdef array
 void
 argdef_undo_parse(Argdef *a, size_t len)
 {
     for (size_t i = 0; i < len; i++) {
-        memset(&(a[i].value), 0, sizeof(a[i].value));
-        a->err = NULL;
+        a[i].value = NULL;
+        a[i].bvalue = 0;
+        a[i].err = NULL;
     }
 }
 
@@ -63,7 +64,7 @@ test_parse_args()
 {
     #define cmpstr strcmp_safe
 
-    esma_log_test("Handle one short argument");
+    esma_log_test("Handle one short bool argument");
     {
         Argdef ad[1];
         memset(ad, 0, sizeof(ad));
@@ -74,7 +75,23 @@ test_parse_args()
 
         char *argv[] = {"./mimino", "-v"};
         esma_assert(parse_args(lenof(argv), argv, lenof(ad), &ad));
-        esma_assert(ad[0].value.b);
+        esma_assert(ad[0].bvalue);
+    }
+
+
+    esma_log_test("Handle one short string argument");
+    {
+        Argdef ad[1];
+        memset(ad, 0, sizeof(ad));
+        ad[0] = (Argdef) {
+            .short_arg = 'i',
+            .type = ARGDEF_TYPE_STRING,
+        };
+
+        char *argv[] = {"./mimino", "-i", "asdf"};
+        esma_assert(parse_args(lenof(argv), argv, lenof(ad), &ad));
+        esma_assert(ad[0].bvalue);
+        esma_assert(!cmpstr(ad[0].value, "asdf"));
     }
 
 
@@ -89,8 +106,9 @@ test_parse_args()
         char *argv_raw[] = {"./mimino", "./."};
         esma_assert(parse_args(lenof(argv_raw), argv_raw, lenof(ad_raw),
                                &ad_raw));
-        esma_assert(!cmpstr(ad_raw[0].value.s, "./."));
+        esma_assert(!cmpstr(ad_raw[0].value, "./."));
     }
+
 
     esma_log_test("Handle two raw arguments");
     {
@@ -107,8 +125,8 @@ test_parse_args()
         char *argv_raw[] = {"./mimino", "./.", "123"};
         esma_assert(parse_args(lenof(argv_raw), argv_raw, lenof(ad_raw),
                                &ad_raw));
-        esma_assert(!cmpstr(ad_raw[0].value.s, "./."));
-        esma_assert(!cmpstr(ad_raw[1].value.s, "123"));
+        esma_assert(!cmpstr(ad_raw[0].value, "./."));
+        esma_assert(!cmpstr(ad_raw[1].value, "123"));
 
         // Reset
         argdef_undo_parse(ad_raw, lenof(ad_raw));
@@ -117,8 +135,8 @@ test_parse_args()
         char *argv_raw_rev[] = {"./mimino", "123", "./."};
         esma_assert(parse_args(lenof(argv_raw_rev), argv_raw_rev, lenof(ad_raw),
                                &ad_raw));
-        esma_assert(!cmpstr(ad_raw[0].value.s, "123"));
-        esma_assert(!cmpstr(ad_raw[1].value.s, "./."));
+        esma_assert(!cmpstr(ad_raw[0].value, "123"));
+        esma_assert(!cmpstr(ad_raw[1].value, "./."));
     }
 
 
@@ -136,7 +154,7 @@ test_parse_args()
         char *argv_l_norm[] = {"./mimino", "--verbose"};
         esma_assert(parse_args(lenof(argv_l_norm), argv_l_norm, lenof(ad_long),
                                &ad_long));
-        esma_assert(ad_long[0].value.b);
+        esma_assert(ad_long[0].bvalue);
 
         // Reset
         argdef_undo_parse(ad_long, lenof(ad_long));
@@ -146,7 +164,7 @@ test_parse_args()
         char *argv_l_eq[] = {"./mimino", "--verbose=1"};
         esma_assert(parse_args(lenof(argv_l_eq), argv_l_eq, lenof(ad_long),
                                &ad_long));
-        esma_assert(ad_long[0].value.b);
+        esma_assert(ad_long[0].bvalue);
     }
 
 
@@ -164,7 +182,7 @@ test_parse_args()
         char *argv_norm[] = {"./mimino", "--port", "8080"};
         esma_assert(parse_args(lenof(argv_norm), argv_norm, lenof(ad_long),
                                &ad_long));
-        esma_assert(!cmpstr(ad_long[0].value.s, "8080"));
+        esma_assert(!cmpstr(ad_long[0].value, "8080"));
 
         // Reset
         argdef_undo_parse(ad_long, lenof(ad_long));
@@ -174,7 +192,7 @@ test_parse_args()
         char *argv_eq[] = {"./mimino", "--port=8080"};
         esma_assert(parse_args(lenof(argv_eq), argv_eq, lenof(ad_long),
                                &ad_long));
-        esma_assert(!cmpstr(ad_long[0].value.s, "8080"));
+        esma_assert(!cmpstr(ad_long[0].value, "8080"));
     }
 
 
@@ -215,59 +233,109 @@ test_parse_args()
         .type = ARGDEF_TYPE_RAW,
     };
 
+
     esma_log_test("Handle multiple short-form args");
     {
         char *argv[] = {"./mimino", "-v", "-u"};
         esma_assert(parse_args(lenof(argv), argv, lenof(argdefs), argdefs));
-        esma_assert(argdefs[0].value.b);
-        esma_assert(argdefs[1].value.b);
-        esma_assert(argdefs[4].value.b == 0);
+        esma_assert(argdefs[0].bvalue);
+        esma_assert(argdefs[1].bvalue);
+        esma_assert(argdefs[4].bvalue == 0);
         argdef_undo_parse(argdefs, lenof(argdefs));
     }
+
 
     esma_log_test("Handle multiple consecutive short-form args");
     {
         char *argv[] = {"./mimino", "-ve"};
         esma_assert(parse_args(lenof(argv), argv, lenof(argdefs), argdefs));
-        esma_assert(argdefs[0].value.b);
-        esma_assert(argdefs[1].value.b == 0);
-        esma_assert(argdefs[4].value.b);
+        esma_assert(argdefs[0].bvalue);
+        esma_assert(argdefs[1].bvalue == 0);
+        esma_assert(argdefs[4].bvalue);
         argdef_undo_parse(argdefs, lenof(argdefs));
     }
+
 
     esma_log_test("Handle 2 consecutive short-form args,"
                   "last one with a value");
     {
         char *argv[] = {"./mimino", "-veiindex.asdf"};
         esma_assert(parse_args(lenof(argv), argv, lenof(argdefs), argdefs));
-        esma_assert(argdefs[0].value.b);
-        esma_assert(argdefs[1].value.b == 0);
-        esma_assert(argdefs[4].value.b);
-        esma_assert(!cmpstr(argdefs[3].value.s, "index.asdf"));
+        esma_assert(argdefs[0].bvalue);
+        esma_assert(argdefs[1].bvalue == 0);
+        esma_assert(argdefs[4].bvalue);
+        esma_assert(!cmpstr(argdefs[3].value, "index.asdf"));
         argdef_undo_parse(argdefs, lenof(argdefs));
     }
+
 
     esma_log_test("Handle 2+ consecutive short-form args,"
                   "last one with a value");
     {
         char *argv[] = {"./mimino", "-vueiindex.asdf"};
         esma_assert(parse_args(lenof(argv), argv, lenof(argdefs), argdefs));
-        esma_assert(argdefs[0].value.b);
-        esma_assert(argdefs[1].value.b);
-        esma_assert(argdefs[4].value.b);
-        esma_assert(!cmpstr(argdefs[3].value.s, "index.asdf"));
+        esma_assert(argdefs[0].bvalue);
+        esma_assert(argdefs[1].bvalue);
+        esma_assert(argdefs[4].bvalue);
+        esma_assert(!cmpstr(argdefs[3].value, "index.asdf"));
         argdef_undo_parse(argdefs, lenof(argdefs));
     }
 
+
     esma_log_test("Handle long, short, and raw args all together");
     {
+        esma_log_subtest("When raw arg comes last");
         char *argv[] = {"./mimino", "-vu", "--port", "8090", "-iindex.asdf", "dir/"};
         esma_assert(parse_args(lenof(argv), argv, lenof(argdefs), argdefs));
-        esma_assert(argdefs[0].value.b);
-        esma_assert(argdefs[1].value.b);
-        esma_assert(!cmpstr(argdefs[2].value.s, "8090"));
-        esma_assert(!cmpstr(argdefs[3].value.s, "index.asdf"));
-        esma_assert(!cmpstr(argdefs[5].value.s, "dir/"));
+        esma_assert(argdefs[0].bvalue);
+        esma_assert(argdefs[1].bvalue);
+        esma_assert(!cmpstr(argdefs[2].value, "8090"));
+        esma_assert(!cmpstr(argdefs[3].value, "index.asdf"));
+        esma_assert(!cmpstr(argdefs[5].value, "dir/"));
+
+        argdef_undo_parse(argdefs, lenof(argdefs));
+
+        esma_log_subtest("When raw arg is in the middle");
+        char *argv_m[] = {"./mimino", "-vu", "--port", "8090", "dir/", "-iindex.asdf"};
+        esma_assert(parse_args(lenof(argv_m), argv_m, lenof(argdefs), argdefs));
+        esma_assert(argdefs[0].bvalue);
+        esma_assert(argdefs[1].bvalue);
+        esma_assert(!cmpstr(argdefs[2].value, "8090"));
+        esma_assert(!cmpstr(argdefs[3].value, "index.asdf"));
+        esma_assert(!cmpstr(argdefs[5].value, "dir/"));
+
+        argdef_undo_parse(argdefs, lenof(argdefs));
+
+        esma_log_subtest("When raw arg comes first");
+        char *argv_f[] = {"./mimino", "dir/", "-vu", "--port", "8090", "-iindex.asdf"};
+        esma_assert(parse_args(lenof(argv_f), argv_f, lenof(argdefs), argdefs));
+        esma_assert(argdefs[0].bvalue);
+        esma_assert(argdefs[1].bvalue);
+        esma_assert(!cmpstr(argdefs[2].value, "8090"));
+        esma_assert(!cmpstr(argdefs[3].value, "index.asdf"));
+        esma_assert(!cmpstr(argdefs[5].value, "dir/"));
+
+        argdef_undo_parse(argdefs, lenof(argdefs));
+    }
+
+    esma_log_test("Return parse error on incomplete args, but still parse ok");
+    {
+        char *argv[] = {"./mimino", "--port=", "dir/", "-i"};
+        esma_assert(!parse_args(lenof(argv), argv, lenof(argdefs), argdefs));
+        esma_assert(!argdefs[0].bvalue);
+        esma_assert(!argdefs[1].bvalue);
+
+        // --port=
+        esma_assert(argdefs[2].bvalue);
+        esma_assert(argdefs[2].err);
+        esma_assert(argdefs[2].value == NULL);
+
+        // -i
+        esma_assert(argdefs[3].bvalue);
+        esma_assert(argdefs[3].err);
+        esma_assert(argdefs[3].value == NULL);
+
+        esma_assert(!cmpstr(argdefs[5].value, "dir/"));
         argdef_undo_parse(argdefs, lenof(argdefs));        
     }
 }
