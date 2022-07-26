@@ -27,7 +27,6 @@ typedef struct {
     char *path;
     char *version_number;
     //char *query;
-    //TODO: char *fragment;
     char *host;
     char *user_agent;
     char *accept;

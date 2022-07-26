@@ -246,12 +246,18 @@ file_list_to_html(Buffer *buf, char *dir_path, File_List *fl)
         buf,
         "<!DOCTYPE html><html>"
         "<head><style>"
-        "* { font-family: monospace; }\n"
-        "table { border: none; margin: 1rem; }\n"
-        "td { padding-right: 2rem; }\n"
-        ".red { color: crimson; }\n"
-        "</style></head>"
-        "<body><table>\n");
+          "* { font-family: monospace; }\n"
+          "table, h1 { border: none; margin: 1rem; }\n"
+          "td { padding-right: 2rem; }\n"
+          ".red { color: crimson; }\n"
+        "</style></head>\n");
+
+    buf_sprintf(
+        buf,
+        "<body>\n"
+        "<h1>%s</h1>\n"
+        "<table>\n",
+        dir_path);
 
     for (size_t i = 0; i < fl->len; i++) {
         File *f = fl->files + i;
