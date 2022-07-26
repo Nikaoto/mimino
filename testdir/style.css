@@ -1,0 +1,81 @@
+html {
+    overflow-y: scroll;
+    background: #fef8f1;
+}
+
+body {
+    font-family: "Noto Serif", Georgia, Times, serif;
+    line-height: 1.4;
+    font-size: 18px;
+}
+
+header > h1 {
+    line-height: 1;
+    margin-bottom: 10px;
+}
+
+#full-name-header-en {
+    font-size: 32px;
+}
+
+#full-name-header-ka {
+    font-size: 28px;
+    color: grey;
+}
+
+a:hover, a:focus {
+    color: crimson;
+}
+
+nav {
+    font-size: 20px;
+}
+
+main, header {
+    padding: 1rem;
+    margin: auto;
+    max-width: 680px;
+}
+
+header {
+    padding: 0.5rem 1rem 0 1rem;
+}
+
+ul, ol {
+    padding-left: 3ch;
+}
+
+small {
+    font-size: 15px;
+}
+
+img {
+    border: 1px solid black;
+}
+
+figure img {
+    max-width: 100%;
+    margin: 0;
+}
+
+figure {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    text-align: center;
+}
+
+figcaption {
+    font-style: italic;
+    padding: 5px;
+    color: #404040;
+    font-size: 18px;
+}
+
+acronym {
+    cursor: help;
+}
+
+.hl {
+    background-color: #ffffa6;
+}
