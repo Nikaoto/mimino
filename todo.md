@@ -1,7 +1,5 @@
 ## TODO
 
-- when serving a single non-directory file, don't resolve any paths
-
 - faster dir scanning (?)
   - use readdir() instead of scandir() ~/src/darkhttpd/darkhttpd.c:1830:0
   
@@ -15,14 +13,18 @@
   - put a verbose flag check before every log
 
 - features
-  - current request path as a large header in dirlisting
-  - move Poll_Queue struct inside Server struct and make connections and pollfds arrays dynamic
-  - add mime type handling
+  - table for mime types
+  - move Poll_Queue struct inside Server struct and make connections and pollfds arrays dynamic (maybe write some tests before doing rewrites like this)
   - Support Range / partial content for streaming or resuming a download
   - Use sendfile() when possible
   - Support HEAD requests(?)
   - support ipv6 (just start listen()ing on one ipv6 socket)
   - read about keep-alive. Is it worth implementing?
+
+- optimizaiton
+  - use hashmap instead of lookup table for mime types
+  - when serving a single non-directory file, don't resolve any paths
+  - caching with infinite (?) TTL
 
 - configuration
   - add flags mentioned in ./readme.md
