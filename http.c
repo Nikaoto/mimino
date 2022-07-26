@@ -43,84 +43,97 @@ is_http_end(char *buf, size_t size)
         buf[i-1] == '\r' && buf[i] == '\n';
 }
 
-// Parses string buf into a request struct
+// Parses buffer and fills out Http_Request fields
+// Returns 1 if request has en
 Http_Request*
-parse_http_request(char *buf)
+parse_http_request(Http_Request *req)
 {
-    char *p = buf;
-    Http_Request *req = xmalloc(sizeof(Http_Request));
-    memset(req, 0, sizeof(*req));
+    // Last char
+    char *end = req->buf->data + req->buf->n_items;
+
+    // Advance str by n bytes; Return if running over buffer
+    #define SAFE_ADVANCE(str, n) {         \
+        if (((str) + (n)) >= end) {        \
+            req->error = "Unexpected EOF"; \
+            return req;                    \
+        }                                  \
+        (str) += (n);                      \
+    }
+
+    // Left and right boundaries of a token
+    char *l = req->buf->data;
+    char *r = req->buf->data;
 
     // Parse method
-    while (is_upper_ascii(*buf))
-        buf++;
-    if (p == buf) {
+    while (is_upper_ascii(*r))
+        SAFE_ADVANCE(r, 1);
+    if (l == r) {
         req->error = "Invalid HTTP method";
         return req;
     }
-    req->method = xstrndup(p, (size_t) (buf - p));
+    req->method = xstrndup(l, (size_t) (r - l));
 
     // Space
-    if (*buf != ' ') {
+    if (*r != ' ') {
         req->error = "No space after HTTP method";
         return req;
     }
-    buf++;
+    SAFE_ADVANCE(r, 1);
 
     // Parse path
-    p = buf;
-    while (is_valid_http_path_char(*buf))
-        buf++;
-    if (p == buf) {
+    l = r;
+    while (is_valid_http_path_char(*r))
+        SAFE_ADVANCE(r, 1);
+    if (l == r) {
         req->error = "Invalid path";
         return req;
     }
-    req->path = xstrndup(p, (size_t) (buf - p));
+    req->path = xstrndup(l, (size_t) (r - l));
 
     // Space
-    if (*buf != ' ') {
+    if (*r != ' ') {
         req->error = "No space after path";
         return req;
     }
-    buf++;
+    SAFE_ADVANCE(r, 1);
 
     // Parse 'HTTP' part of the HTTP version
-    if (strncmp(buf, "HTTP", 4)) {
+    if (strncmp(r, "HTTP", 4)) {
         req->error = "No 'HTTP' in HTTP version";
         return req;
     }
-    buf+=4;
+    SAFE_ADVANCE(r, 4);
 
     // Slash after 'HTTP'
-    if (*buf != '/') {
+    if (*r != '/') {
         req->error = "No '/' in HTTP version";
         return req;
     }
-    buf++;
+    SAFE_ADVANCE(r, 1);
 
     // Version number '[0-9]+\.[0-9]+'
-    p = buf;
-    while (is_digit(*buf))
-        buf++;
-    if (*buf != '.') {
+    l = r;
+    while (is_digit(*r))
+        SAFE_ADVANCE(r, 1);
+    if (*r != '.') {
         req->error = "No '.' in HTTP version number";
         return req;
     }
-    buf++;
-    while (is_digit(*buf))
-        buf++;
-    req->version_number = xstrndup(p, (size_t) (buf - p));
+    SAFE_ADVANCE(r, 1);
+    while (is_digit(*r))
+        SAFE_ADVANCE(r, 1);
+    req->version_number = xstrndup(l, (size_t) (r - l));
     if(!can_handle_http_ver(req->version_number)) {
         req->error = "Can't handle given version";
         return req;
     }
 
     // \r\n at the end
-    if (*buf != '\r' || *(buf + 1) != '\n') {
+    if (*r != '\r' || *(r + 1) != '\n') {
         req->error = "No CRLF after HTTP version";
         return req;
     }
-    buf += 2;
+    SAFE_ADVANCE(r, 2);
 
     // Parse headers
     while (1) {
@@ -130,39 +143,40 @@ parse_http_request(char *buf)
         size_t hv_len;
 
         // Final \r\n
-        if (*buf == '\r' && *(buf + 1) == '\n') {
+        if (*r == '\r' && *(r + 1) == '\n') {
             return req;
         }
   
         // Header name
-        hn = buf;
-        while (is_alpha(*buf) || *buf == '-')
-            buf++;
-        //hn_len = (size_t) (buf - hn);
+        hn = r;
+        while (is_alpha(*r) || *r == '-')
+            SAFE_ADVANCE(r, 1);
+        //hn_len = (size_t) (r - hn);
   
-        if (*buf != ':') {
+        if (*r != ':') {
             req->error = "No ':' after header name";
             return req;
         }
-        buf++;
+        SAFE_ADVANCE(r, 1);
   
-        if (*buf != ' ') {
+        if (*r != ' ') {
             req->error = "No space after header name colon";
             return req;
         }
-        buf++;
+        SAFE_ADVANCE(r, 1);
   
         // Header value
-        for(hv = buf; !(*buf == '\r' && *(buf+1) == '\n'); buf++) {
-            if (*buf == '\0') {
+        for(hv = r; !(*r == '\r' && *(r+1) == '\n');) {
+            if (*r == '\0') {
                 req->error = "No CRLF at the end of the request";
                 return req;
             }
+            SAFE_ADVANCE(r, 1);
         }
-        hv_len = (size_t) (buf - hv);
+        hv_len = (size_t) (r - hv);
 
         // Step over \r\n
-        buf += 2;
+        SAFE_ADVANCE(r, 2);
 
         // Dump header
         /* for (size_t i = 0; i < hn_len; i++) */
@@ -196,9 +210,11 @@ free_http_request(Http_Request *req)
     free(req->host);
     free(req->user_agent);
     free(req->accept);
+    free_buf(req->buf);
 
     // NOTE: DO NOT free req->error as it's static
     free(req);
+    req = NULL;
 }
 
 void
@@ -276,7 +292,7 @@ make_http_response(Server *serv, Http_Request *req)
     File file;
 
     Http_Response *res = xmalloc(sizeof(Http_Response));
-    res->buf = new_buf(RES_BUF_SIZE);
+    res->buf = new_buf(RESPONSE_BUF_INIT_SIZE);
     res->nbytes_sent = 0;
     res->error = NULL;
 
@@ -286,10 +302,10 @@ make_http_response(Server *serv, Http_Request *req)
     char *path = resolve_path(serv->serve_path, clean_http_path);
     defer(&dq, free, path);
 
-    printf("serve path: %s\n", serv->serve_path);
-    printf("request path: %s\n", req->path);
-    printf("clean request path: %s\n", clean_http_path);
-    printf("resolved path: %s\n", path);
+    /* printf("serve path: %s\n", serv->serve_path); */
+    /* printf("request path: %s\n", req->path); */
+    /* printf("clean request path: %s\n", clean_http_path); */
+    /* printf("resolved path: %s\n", path); */
 
     // Find out if we're listing a dir or serving a file
     char *base_name = get_base_name(path);
@@ -421,4 +437,5 @@ free_http_response(Http_Response *res)
     free_buf(res->buf);
     // free(res->error);
     free(res);
+    res = NULL;
 }

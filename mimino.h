@@ -10,9 +10,6 @@
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-#define REQ_BUF_SIZE 8192
-#define RES_BUF_SIZE 8192
-
 #define HEXDUMP_DATA 1
 #define DUMP_WIDTH 10
 
@@ -21,12 +18,16 @@
 #define CONN_STATUS_WAITING   3
 #define CONN_STATUS_CLOSED    4
 
+#define MAX_REQUEST_SIZE       4096
+#define RESPONSE_BUF_INIT_SIZE 4096
+
 typedef struct {
+    Buffer *buf;
     char *method;
     char *path;
     char *version_number;
     //char *query;
-    //char *fragment;
+    //TODO: char *fragment;
     char *host;
     char *user_agent;
     char *accept;
@@ -34,7 +35,6 @@ typedef struct {
 } Http_Request;
 
 typedef struct {
-    //char *resolved_path;
     Buffer *buf;
     size_t nbytes_sent;
     char *error;
@@ -43,12 +43,9 @@ typedef struct {
 typedef struct {
     int fd;
     struct pollfd *pollfd;
-    // NOTE: both req and res will be changed to dynamic char buffers
     Http_Request *req;
-    char req_buf[REQ_BUF_SIZE]; // TODO: replace with Buffer
-    size_t req_buf_i;           // Points to char up to which data was read
-    int read_tries_left;        // read_request tries left until force closing
     Http_Response *res;
+    int read_tries_left;        // read_request tries left until force closing
     int write_tries_left;       // write_response tries left until force closing
     int status;
 } Connection;

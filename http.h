@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include "mimino.h"
 
-Http_Request* parse_http_request(char*);
+Http_Request* parse_http_request(Http_Request*);
 int is_http_end(char *buf, size_t size);
 void print_http_request(FILE*, Http_Request*);
 void free_http_request(Http_Request*);

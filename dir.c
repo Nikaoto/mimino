@@ -73,8 +73,6 @@ resolve_path(char *p1, char *p2)
     rp++;
 
     // Copy p2 onto res (including null term)
-    printf("res: %s\n", res);
-    printf("p2: %s\n", p2);
     size_t l2_trimmed = strlen(p2);
     for (size_t i = 0; i < l2_trimmed + 1; i++) {
         // Don't copy '/' if previous char was also '/'

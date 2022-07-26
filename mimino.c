@@ -52,11 +52,6 @@ print_connection(struct pollfd *pfd, Connection *conn)
     printf("  .write_tries_left = %d,\n", conn->write_tries_left);
     printf("  .req = ");
     print_http_request(stdout, conn->req);
-    printf("  .req_buf = [OMITTED]\n");
-    /* dump_data(stdout, */
-    /*           conn->req_buf, */
-    /*           conn->req_buf_i, */
-    /*           DUMP_WIDTH); */
     printf("  .res = \n");
     print_http_response(stdout, conn->res);
     printf("}\n");
@@ -79,7 +74,7 @@ new_connection(int fd, struct pollfd *pfd)
         .fd = fd,
         .pollfd = pfd,
         .status = CONN_STATUS_READING,
-        .req_buf_i = 0,
+        .req = NULL,
         .res = NULL,
         .read_tries_left = 5,
         .write_tries_left = 5,
@@ -215,13 +210,12 @@ accept_new_conn(int listen_sock)
 int
 read_request(Connection *conn)
 {
-    // FIXME: we can't read requests larger than REQ_BUF_SIZE
     int n = recv(conn->fd,
-                 conn->req_buf + conn->req_buf_i,
-                 sizeof(conn->req_buf) - conn->req_buf_i,
+                 conn->req->buf->data + conn->req->buf->n_items,
+                 conn->req->buf->n_alloc - conn->req->buf->n_items,
                  0);
-
     if (n < 0) {
+        int saved_errno = errno;
         if (errno == EWOULDBLOCK || errno == EAGAIN || errno == EINTR) {
             if (conn->read_tries_left == 0) {
                 fprintf(stderr, "Reached max read tries for conn\n");
@@ -229,16 +223,24 @@ read_request(Connection *conn)
             }
             conn->read_tries_left--;
         }
+        errno = saved_errno;
         perror("recv()");
         return 0;
     }
 
-    //dump_data(stdout, conn->req_buf + conn->req_buf_i, n, DUMP_WIDTH);
-    conn->req_buf_i += n;
+    //dump_data(stdout,
+    //          conn->req->buf->data + conn->req->buf->n_items,
+    //          n,
+    //          DUMP_WIDTH);
 
-    // Finished reading
-    if (n == 0 || is_http_end(conn->req_buf, conn->req_buf_i + 1))
+    conn->req->buf->n_items += n;
+
+    // Finished reading (or request buffer full)
+    if (n == 0 ||
+        conn->req->buf->n_items == conn->req->buf->n_alloc ||
+        is_http_end(conn->req->buf->data, conn->req->buf->n_items)) {
         return 1;
+    }
 
     return 0;
 }
@@ -280,7 +282,7 @@ write_response(Server *serv, Connection *conn)
 
 /*
   TODO: think of a better way to close a connection by passing an actual
-  Connection struct.
+  Connection struct or a Server struct.
 */
 void
 close_connection(Poll_Queue *pq, nfds_t i)
@@ -421,63 +423,83 @@ main(int argc, char **argv)
             Connection *conn = &poll_queue.conns[fd_i];
 
             switch (conn->status) {
-            case CONN_STATUS_READING:
-                if (conn->pollfd->revents & POLLIN) {
-                    int status = read_request(conn);
-                    if (status == -1) {
-                        // Reading failed
-                        free_connection_parts(conn);
-                        close_connection(&poll_queue, fd_i);
-                    } else if (status == 1) {
-                        // Reading done, parse request
-                        Http_Request *req = parse_http_request(conn->req_buf);
-                        //print_http_request(stdout, req);
+            case CONN_STATUS_READING: {
+                if (!(conn->pollfd->revents & POLLIN))
+                    continue;
 
-                        // Close on parse error
-                        if (req->error) {
-                            fprintf(stdout, "Parse error: %s\n", req->error);
-                            free_connection_parts(conn);
-                            close_connection(&poll_queue, fd_i);
-                        }
-
-                        // Start writing
-                        conn->req = req;
-                        conn->status = CONN_STATUS_WRITING;
-                        poll_queue.pollfds[fd_i].events = POLLOUT;
-                    }
+                // Allocate memory for request struct
+                if (conn->req == NULL) {
+                    conn->req = xmalloc(sizeof(*(conn->req)));
+                    memset(conn->req, 0, sizeof(*(conn->req)));
+                    // We won't grow this buffer
+                    conn->req->buf = new_buf(MAX_REQUEST_SIZE);
                 }
-                break;
-            case CONN_STATUS_WRITING:
-                if (conn->pollfd->revents & POLLOUT) {
-                    if (!conn->res) {
-                        conn->res = make_http_response(&serv, conn->req);
 
-                        if (serv.verbose) {
-                            printf("-----------------\n");
-                            print_http_request(stdout, conn->req);
-                            print_http_response(stdout, conn->res);
-                            printf("-----------------\n");
-                        }
-                    }
+                int status = read_request(conn);
+                if (status == -1) {
+                    // Reading failed
+                    free_connection_parts(conn);
+                    close_connection(&poll_queue, fd_i);
+                } else if (status == 1) {
+                    // Reading done, parse request
+                    parse_http_request(conn->req);
+                    //print_http_request(stdout, req);
 
-                    int status = write_response(&serv, conn);
-                    if (status == 1) {
-                        // Close when done.
-                        // Even HTTP errors like 5xx or 4xx go here.
-                        free_connection_parts(conn);
-                        close_connection(&poll_queue, fd_i);
-                    } else if (status == -1) {
-                        // Fatal error, can't send data.
-                        if (conn->res->error) {
-                            fprintf(stdout,
-                                    "Error when writing response: %s\n",
-                                    conn->req->error);
+                    // Parse error
+                    if (conn->req->error) {
+                        fprintf(stdout,
+                                "Parse error: %s\n",
+                                conn->req->error);
+
+                        // Close the connection if we didn't manage
+                        // to parse the essential headers
+                        if (!conn->req->method ||
+                            !conn->req->path ||
+                            !conn->req->host) {
                             free_connection_parts(conn);
                             close_connection(&poll_queue, fd_i);
                         }
                     }
+
+                    // Start writing
+                    conn->status = CONN_STATUS_WRITING;
+                    poll_queue.pollfds[fd_i].events = POLLOUT;
                 }
                 break;
+            }
+            case CONN_STATUS_WRITING: {
+                if (!(conn->pollfd->revents & POLLOUT))
+                    continue;
+
+                if (!conn->res) {
+                    conn->res = make_http_response(&serv, conn->req);
+
+                    if (serv.verbose) {
+                        printf("-----------------\n");
+                        print_http_request(stdout, conn->req);
+                        print_http_response(stdout, conn->res);
+                        printf("-----------------\n");
+                    }
+                }
+
+                int status = write_response(&serv, conn);
+                if (status == 1) {
+                    // Close when done.
+                    // Even HTTP errors like 5xx or 4xx go here.
+                    free_connection_parts(conn);
+                    close_connection(&poll_queue, fd_i);
+                } else if (status == -1) {
+                    // Fatal error, can't send data.
+                    if (conn->res->error) {
+                        fprintf(stdout,
+                                "Error when writing response: %s\n",
+                                conn->req->error);
+                        free_connection_parts(conn);
+                        close_connection(&poll_queue, fd_i);
+                    }
+                }
+                break;
+            }
             case CONN_STATUS_WAITING:
                 fprintf(stderr, "CONN_STATUS_WAITING not implemented\n");
                 break;

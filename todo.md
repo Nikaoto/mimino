@@ -88,3 +88,64 @@ stunnel -c rawliverclub.com-cert.pem -k rawliverclub.com-key.pem \
     -p8002:9002 >> /var/log/stunnel-rawliverlcub.com.log &
 mimino -i -p9002 ~/rawliverclub.com/ >> /var/log/rawliverclub.com.log &
 ```
+
+# Other
+Read request with socket emptying:
+```
+// Return 1 if done reading completely.
+// Return 0 if an incomplete read happened.
+// Return -1 on fatal error or max retry reached.
+int
+read_request(Connection *conn)
+{
+    static char trash_buf[40960];
+    int n;
+    size_t nbytes_to_recv = conn->req->buf->n_alloc - conn->req->buf->n_items;
+
+    if (nbytes_to_recv == 0) {
+        // We've already filled our req buffer, this will empty the socket
+        n = recv(conn->fd, trash_buf, sizeof(trash_buf), 0);
+    } else {
+        n = recv(conn->fd,
+                 conn->req->buf->data + conn->req->buf->n_items,
+                 nbytes_to_recv,
+                 0);
+    }
+
+    printf("n: %d\n", n);
+    printf("buf->n_alloc: %zu\n", conn->req->buf->n_alloc);
+    printf("buf->n_items: %zu\n", conn->req->buf->n_items);
+    printf("nbytes_to_recv: %zu\n", nbytes_to_recv);
+
+    if (n < 0) {
+        int saved_errno = errno;
+        if (errno == EWOULDBLOCK || errno == EAGAIN || errno == EINTR) {
+            if (conn->read_tries_left == 0) {
+                fprintf(stderr, "Reached max read tries for conn\n");
+                return -1;
+            }
+            conn->read_tries_left--;
+        }
+        errno = saved_errno;
+        perror("recv()");
+        return 0;
+    }
+
+    //dump_data(stdout,
+    //          conn->req->buf->data + conn->req->buf->n_items,
+    //          n,
+    //          DUMP_WIDTH);
+
+    if (nbytes_to_recv != 0)
+        conn->req->buf->n_items += n;
+
+    // Finished reading (or request buffer full)
+    if (n == 0 ||
+        conn->req->buf->n_items == conn->req->buf->n_alloc ||
+        is_http_end(conn->req->buf->data, conn->req->buf->n_items)) {
+        return 1;
+    }
+
+    return 0;
+}
+```
