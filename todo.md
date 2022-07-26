@@ -1,25 +1,33 @@
 ## TODO
-- decode req->path url and pass that to resolve_path
-- encode file names and use that as href for dirlisting(? check in rfc if necessary)
-- support utf8 filenames in dirlisting (check if bits for utf8 set and render them as such)
-- use readdir() instead of scandir() ~/src/darkhttpd/darkhttpd.c:1830:0
-- timeout for lingering connections
-- something about changing the GID and UID of the UNIX-domain socket file
-- support ipv6 (just start listen()ing on one ipv6 socket)
-- read about keep-alive. Is it worth implementing?
-- restrict linking to directories outside serve_dir
-- allow linking to files outside serve_dir
-- serve index.html if present
-- url encoding / decoding
-- log the server configuration when starting up
-- add flag -p for port
-- add flag -c for chroot to serve_dir at init
-- add flag -e to search for standard xxx.html error files in case of errors (404.html, 500.html ...)
-- add flag -i for index.html (if arg is empty, default to index.html)
-- rename `free_*` functions to `free_*_parts`
-- use sendfile() whenever possible
-- Support Range / partial content for streaming or resuming a download
-- Support HEAD requests
+
+- url encoding/decoding
+  - decode req->path url and pass that to resolve_path
+  - encode file names and use that as href for dirlisting(? check in rfc if necessary)
+
+- faster dir scanning (?)
+  - use readdir() instead of scandir() ~/src/darkhttpd/darkhttpd.c:1830:0
+  
+- security
+  - timeout for lingering connections
+  - something about changing the GID and UID of the UNIX-domain socket file
+  - restrict linking to directories outside serve_dir (unless `serv.conf.unsafe` is set)
+
+- logging / debugging
+  - log the server configuration when starting up
+  - put a verbose flag check before every log
+
+- features
+  - move Poll_Queue struct inside Server struct and make connections and pollfds arrays dynamic
+  - add mime type handling
+  - Support Range / partial content for streaming or resuming a download
+  - Use sendfile() when possible
+  - Support HEAD requests(?)
+  - support ipv6 (just start listen()ing on one ipv6 socket)
+  - read about keep-alive. Is it worth implementing?
+
+- configuration
+  - add flags mentioned in ./readme.md
+
 - Skim RFCs
   - [HTTP/1.1 - Syntax & Routing (main)](https://datatracker.ietf.org/doc/html/rfc7230)
   - [HTTP/1.1 - Status Codes, Methods & Headers ](https://datatracker.ietf.org/doc/html/rfc7231)
@@ -32,16 +40,14 @@
   - [old HTTP 1.1 RFC](https://datatracker.ietf.org/doc/html/rfc2616)
   - [other internet standard RFCs](https://www.rfc-editor.org/search/rfc_search_detail.php?sortkey=Number&sorting=DESC&page=All&pubstatus%5B%5D=Standards%20Track&std_trk=Internet%20Standard)
   - [Roy Fieldings REST dissertation](https://www.ics.uci.edu/~fielding/pubs/dissertation/top.htm)
-- move (almost) all structs and header contents to mimino.h
-- Right now I'm send()ing stuff bit by bit. Need to find out how big an HTTP request can get
 - GoodSocket by jart: https://github.com/jart/cosmopolitan/blob/master/libc/sock/goodsocket.c
 - read https://developer.mozilla.org/en-US/docs/Web/HTTP
 - read https://unix4lyfe.org/darkhttpd/
 
 ## Pre-release checklist
 - Run performance test with https://github.com/wg/wrk
-- Use epoll on linux, kqueue on bsd and osx, poll otherwise
 - Write mimino-forwarder
+- remove unnecessary logging & printfs
 
 ## Ideas
 

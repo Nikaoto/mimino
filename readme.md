@@ -1,14 +1,16 @@
 # mimino
 
-After finished, the man page should look like this (perhaps without SSL?):
+_WIP_
+
+After finished, the man page should look like this:
 
 ```
 NAME
     mimino - Quickly serve a directory or static website
 
 SYNOPSIS
-    mimino [-vqure] [-p PORT] [-P HTTPS_PORT] [-i INDEXFILE]
-           [-c CERTFILE -k KEYFILE] [FILE/DIRECTORY]
+    mimino [-vqure] [-p PORT] [-P HTTPS_PORT] [-i [INDEXFILE]]
+           [-s [SUFFIX]] [FILE/DIRECTORY]
 
 DESCRIPTION
     Mimino is a zero-configuration, simple and small web server
@@ -36,7 +38,11 @@ OPTIONS
           '/hello.txt' if found, otherwise it will serve the
           contents of the file '/hello'. If SUFFIX is not
           provided, but this flag is set, it will default to
-          '.html'.
+          '.html'. This flag can be given many times, so
+          
+              mimino -s .htm -s .html
+          
+          will first check '.htm' files, then '.html' ones.
 
     -p PORT
           Sets port to listen to for HTTP connections. Default
@@ -44,8 +50,8 @@ OPTIONS
 
     -P HTTPS_PORT
           Sets port to listen to for HTTPS connections. Default
-          is 443. Uses CERTFILE and KEYFILE for connections on
-          this port, so -c and -k are implied.
+          is 443. Doesn't do SSL, but can be used with a SSL
+          proxy.
 
     -i INDEXFILE
           Mimino will search for INDEXFILE inside the directory
@@ -53,14 +59,6 @@ OPTIONS
           flag is set, it will default to 'index.html'. If this
           flag is not set, Mimino will serve a listing of the
           directory.
-
-    -c CERTFILE
-          Path to PEM-format X.509 certificate file.
-          Implies -k and -P.
-
-    -k KEYFILE
-          Path to PEM-format X.509 key file.
-          Implies -c and -P.
 
 AUTHOR
     Written by Nikoloz Otiashvili.
