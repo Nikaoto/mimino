@@ -330,6 +330,16 @@ make_http_response(Server *serv, Http_Request *req)
 
     // We're serving a dirlisting
     if (file.is_dir) {
+        // Forward to path with trailing slash if it's missing
+        if (clean_http_path[strlen(clean_http_path) - 1] != '/') {
+            buf_sprintf(
+                res->buf,
+                "HTTP/1.1 301\r\n"
+                "Location:%s/\r\n\r\n",
+                clean_http_path);
+            return fulfill(&dq, res);
+        }
+
         Defer_Queue dqfl = NULL_DEFER_QUEUE;
 
         // Get file list
@@ -443,3 +453,4 @@ free_http_response(Http_Response *res)
     free(res);
     res = NULL;
 }
+

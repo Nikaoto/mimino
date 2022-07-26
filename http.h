@@ -13,4 +13,7 @@ Http_Response* make_http_response(Server *serv, Http_Request* req);
 void print_http_response(FILE*, Http_Response*);
 void free_http_response(Http_Response*);
 
+void buf_encode_url(Buffer *, char *);
+//char *decode_url(char *);
+
 #endif // _MIMINO_HTTP_H

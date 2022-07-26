@@ -2,7 +2,6 @@
 
 - url encoding/decoding
   - decode req->path url and pass that to resolve_path
-  - encode file names and use that as href for dirlisting(? check in rfc if necessary)
 
 - faster dir scanning (?)
   - use readdir() instead of scandir() ~/src/darkhttpd/darkhttpd.c:1830:0
@@ -17,6 +16,7 @@
   - put a verbose flag check before every log
 
 - features
+  - current request path as a large header in dirlisting
   - move Poll_Queue struct inside Server struct and make connections and pollfds arrays dynamic
   - add mime type handling
   - Support Range / partial content for streaming or resuming a download
@@ -40,7 +40,9 @@
   - [old HTTP 1.1 RFC](https://datatracker.ietf.org/doc/html/rfc2616)
   - [other internet standard RFCs](https://www.rfc-editor.org/search/rfc_search_detail.php?sortkey=Number&sorting=DESC&page=All&pubstatus%5B%5D=Standards%20Track&std_trk=Internet%20Standard)
   - [Roy Fieldings REST dissertation](https://www.ics.uci.edu/~fielding/pubs/dissertation/top.htm)
-- GoodSocket by jart: https://github.com/jart/cosmopolitan/blob/master/libc/sock/goodsocket.c
+- Try on improvements from GoodSocket by jart:
+  https://github.com/jart/cosmopolitan/blob/master/libc/sock/goodsocket.c and
+  measure actual performance increase
 - read https://developer.mozilla.org/en-US/docs/Web/HTTP
 - read https://unix4lyfe.org/darkhttpd/
 

@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
+#include "ascii.h"
 #include "buffer.h"
 #include "xmalloc.h"
 
@@ -105,16 +106,27 @@ buf_sprintf(Buffer *buf, char *fmt, ...)
     return len - 1;
 }
 
+// Encode url and copy it into buf
+void
+buf_encode_url(Buffer *buf, char *url)
+{
+    char hex[] = "0123456789ABCDEF";
+
+    for (; *url != '\0'; url++) {
+        if (needs_encoding((unsigned char)*url)) {
+            buf_push(buf, '%');
+            buf_push(buf, hex[(*url >> 4) & 0xF]);
+            buf_push(buf, hex[ *url       & 0xF]);
+        } else {
+            buf_push(buf, *url);
+        }
+    }
+}
+
 void
 buf_append_href(Buffer *buf, File *f, char *req_path)
 {
-    // dirname
-    buf_append_str(buf, req_path);
-    if (req_path[strlen(req_path) - 1] != '/')
-        buf_push(buf, '/');
-
-    // basename
-    buf_append_str(buf, f->name);
+    buf_encode_url(buf, f->name);
 
     // trailing '/' if given file is a directory
     if (f->is_dir) buf_push(buf, '/');

@@ -25,4 +25,21 @@ is_alnum(char c)
     return is_digit(c) || is_alpha(c);
 }
 
+// https://tools.ietf.org/html/rfc3986#section-2.3
+inline int
+needs_encoding(unsigned char c)
+{
+    if (is_alnum(c)) return 0;
+
+    switch (c) {
+    case '-':
+    case '.':
+    case '_':
+    case '~':
+        return 0;
+    }
+
+    return 1;
+}
+
 #endif // _MIMINO_ASCII_H
