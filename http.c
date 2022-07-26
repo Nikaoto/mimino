@@ -411,15 +411,16 @@ file_list_to_html(Buffer *buf, char *endpoint, File_List *fl)
             buf_append_str(buf, tmp);
             free(tmp);
         }
-        buf_append_str(buf, "</td><td>\n");
+        buf_append_str(buf, "</td><td>");
 
         // Write file permissions
         char *tmp = get_human_file_perms(f);
         buf_append_str(buf, tmp);
         free(tmp);
+        buf_append_str(buf, "</td></tr>\n");
     }
 
-    buf_append_str(buf, "</table></body></html>\r\n");
+    buf_append_str(buf, "</table></body></html>\n");
 }
 
 // Writes dirlisting headers to given 'head' Buffer and
