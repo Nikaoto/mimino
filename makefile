@@ -2,7 +2,8 @@
 CC := cc
 CWARNS := -Wall -Wpedantic -Wextra -Wno-comments \
 	-Wno-implicit-fallthrough -Wno-int-conversion \
-	-Wno-incompatible-pointer-types
+	-Wno-incompatible-pointer-types \
+	-Wno-pointer-arith
 TEST_CWARNS := -Wall -Wpedantic -Wextra -Wno-comments \
 	-Wno-incompatible-pointer-types
 CFLAGS := $(CWARNS) -g
@@ -19,6 +20,7 @@ OBJS_DIR=.objs
 OBJS= \
 	$(OBJS_DIR)/buffer.o       \
 	$(OBJS_DIR)/arg.o          \
+	$(OBJS_DIR)/fdwatch.o      \
 	$(OBJS_DIR)/dir.o          \
 	$(OBJS_DIR)/http.o         \
 	$(OBJS_DIR)/xmalloc.o      \

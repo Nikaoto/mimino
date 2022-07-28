@@ -80,12 +80,11 @@ typedef struct {
     time_t last_active;
 } Connection;
 
-#define MAX_CONN 20
-
 typedef struct {
-    struct pollfd pollfds[MAX_CONN];
-    nfds_t pollfd_count;
-    Connection conns[MAX_CONN];
+    struct pollfd *pollfds;
+    Connection *conns;
+    nfds_t n_conns;
+    nfds_t n_conns_alloc;
 } Poll_Queue;
 
 typedef struct {
@@ -96,6 +95,7 @@ typedef struct {
     int serve_error_files;
     int timeout_secs;
     int poll_interval_ms;
+    int max_fds;
     char *serve_path;
     char *port;
     char *index;  // TODO: replace with array of strings 'index_list'

@@ -17,6 +17,7 @@
 #include <dirent.h>
 #include <time.h>
 #include "mimino.h"
+#include "fdwatch.h"
 #include "xmalloc.h"
 #include "defer.h"
 #include "http.h"
@@ -50,6 +51,7 @@ print_server_config(Server_Config *conf)
     printf("  .index = \"%s\",\n", conf->index);
     printf("  .suffix = \"%s\",\n", conf->suffix);
     printf("  .chroot_dir = \"%s\",\n", conf->chroot_dir);
+    printf("  .max_fds = %d,\n", conf->max_fds);
     printf("  .timeout_secs = %d,\n", conf->timeout_secs);
     printf("  .poll_interval_ms = %d,\n", conf->poll_interval_ms);
     printf("}\n");
@@ -59,8 +61,9 @@ void
 print_server_state(Server *serv)
 {
     printf("time_now: %ld\n", serv->time_now);
-    printf("pollfd_count: %zu\n", serv->queue.pollfd_count);
-    for (nfds_t i = 1; i < serv->queue.pollfd_count; i++) {
+    printf("n_conns_alloc: %zu\n", serv->queue.n_conns_alloc);
+    printf("n_conns: %zu\n", serv->queue.n_conns);
+    for (nfds_t i = 1; i < serv->queue.n_conns; i++) {
         printf("Connection %zu:\n", i);
         print_connection(serv->queue.pollfds + i,
                          serv->queue.conns + i);
@@ -151,6 +154,17 @@ init_server(char *port, struct addrinfo *server_addrinfo)
     freeaddrinfo(getaddrinfo_res);
 
     return bound ? sockfd : -1;
+}
+
+void
+init_conn_pool(Server *serv)
+{
+    serv->queue.n_conns_alloc = MIN(serv->conf.max_fds, 1024);
+    serv->queue.n_conns = 0;
+    serv->queue.pollfds = xmalloc(
+        sizeof(struct pollfd) * serv->queue.n_conns_alloc);
+    serv->queue.conns = xmalloc(
+        sizeof(Connection) * serv->queue.n_conns_alloc);
 }
 
 // Returns the socket fd of the new connection
@@ -431,12 +445,23 @@ close_connection(Server *s, nfds_t i)
     s->queue.pollfds[i].revents = 0;
 
     // Copy last pollfd and conn onto current pollfd and conn
-    if (i != s->queue.pollfd_count - 1) {
-        s->queue.pollfds[i] = s->queue.pollfds[s->queue.pollfd_count - 1];
-        s->queue.conns[i] = s->queue.conns[s->queue.pollfd_count - 1];
+    if (i != s->queue.n_conns - 1) {
+        s->queue.pollfds[i] = s->queue.pollfds[s->queue.n_conns - 1];
+        s->queue.conns[i] = s->queue.conns[s->queue.n_conns - 1];
     }
 
-    s->queue.pollfd_count--;
+    s->queue.n_conns--;
+
+    // Downsize if necessary
+    if (s->queue.n_conns_alloc > 20 &&
+        s->queue.n_conns <= s->queue.n_conns_alloc / 4) {
+        s->queue.n_conns_alloc = MAX(20, s->queue.n_conns_alloc / 2);
+        xrealloc(s->queue.pollfds,
+                 sizeof(s->queue.pollfds[0]) * s->queue.n_conns_alloc);
+        xrealloc(s->queue.conns,
+                 sizeof(s->queue.conns[0]) * s->queue.n_conns_alloc);
+        
+    }
 }
 
 void
@@ -684,6 +709,34 @@ do_conn_state(Server *serv, nfds_t idx)
     return -1;
 }
 
+void
+serv_add_connection(Server *s, int newsock)
+{
+    int idx = s->queue.n_conns;
+    s->queue.n_conns++;
+
+    // Resize pollfds and conns arrays
+    if (s->queue.n_conns >= s->queue.n_conns_alloc) {
+        s->queue.n_conns_alloc = MIN(
+            s->queue.n_conns_alloc * 2,
+            (nfds_t) s->conf.max_fds);
+        xrealloc(s->queue.pollfds,
+                 sizeof(s->queue.pollfds[0]) * s->queue.n_conns_alloc);
+        xrealloc(s->queue.conns,
+                 sizeof(s->queue.conns[0]) * s->queue.n_conns_alloc);
+    }
+
+    // Add pollfd
+    s->queue.pollfds[idx] = (struct pollfd) {
+        .fd = newsock,
+        .events = POLLIN,
+        .revents = 0,
+    };
+
+    // Add connection
+    s->queue.conns[idx] = make_connection(newsock, s, idx);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -757,9 +810,9 @@ main(int argc, char **argv)
             (argdefs[7].value ? argdefs[7].value : "index.html")
             : NULL,
         .serve_path = argdefs[8].value ? argdefs[8].value : "./",
-
         .timeout_secs     = 20,
         .poll_interval_ms = 1000,
+        .max_fds = fdwatch_get_max_poll_nfds(),
     };
 
     // Set chroot directory
@@ -796,13 +849,16 @@ main(int argc, char **argv)
         return 1;
     }
 
+    // Preallocate space for connections &  pollfds
+    init_conn_pool(&serv);
+
     // Add listen_sock to poll queue
     serv.queue.pollfds[0] = (struct pollfd) {
         .fd = listen_sock,
         .events = POLLIN,
         .revents = 0,
     };
-    serv.queue.pollfd_count = 1;
+    serv.queue.n_conns = 1;
     // NOTE: This connection won't be used; it's the listen socket
     serv.queue.conns[0] = make_connection(listen_sock, &serv, 0);
 
@@ -811,7 +867,7 @@ main(int argc, char **argv)
         serv.time_now = time(NULL);
         int nfds = poll(
             serv.queue.pollfds,
-            serv.queue.pollfd_count,
+            serv.queue.n_conns,
             serv.conf.poll_interval_ms);
 
         if (nfds == -1) {
@@ -827,24 +883,16 @@ main(int argc, char **argv)
         // Accept new connection
         // pollfds[0].fd is the listen_sock
         if (serv.queue.pollfds[0].revents & POLLIN) {
-            if (serv.queue.pollfd_count >= MAX_CONN) {
+            if (serv.queue.n_conns >= (nfds_t) serv.conf.max_fds) {
                 fprintf(
                     stderr,
                     "poll queue reached maximum capacity of %d\n",
-                    MAX_CONN);
+                    serv.conf.max_fds);
             } else {
                 int newsock = accept_new_conn(listen_sock);
                 if (newsock != -1) {
-                    // Update poll queue
-                    serv.queue.pollfd_count++;
-                    int i = serv.queue.pollfd_count - 1;
-                    serv.queue.pollfds[i] = (struct pollfd) {
-                        .fd = newsock,
-                        .events = POLLIN,
-                        .revents = 0,
-                    };
-                    serv.queue.conns[i] =
-                        make_connection(newsock, &serv, i);
+                    // Update conn queue
+                    serv_add_connection(&serv, newsock);
 
                     // Restart loop to prioritize new connections
                     continue;
@@ -853,7 +901,7 @@ main(int argc, char **argv)
         }
 
         // Iterate conn/pollfd queue (starts from 1, skipping listen_sock)
-        for (nfds_t idx = 1; idx < serv.queue.pollfd_count; idx++) {
+        for (nfds_t idx = 1; idx < serv.queue.n_conns; idx++) {
             Connection *conn = &(serv.queue.conns[idx]);
 
             // Drop connection if it timed out
