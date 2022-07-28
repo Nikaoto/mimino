@@ -1004,7 +1004,7 @@ send_buf(int sock, char *buf, size_t len)
     // socket and instead will serve other requests and thus
     // pass time until the blocked sockets become available
     // again.
-    // 
+    //
     // A retry mechanism in general is useful for
     // slow/intermittent connections, so even if I end up
     // removing the one below, it's still wise to have one

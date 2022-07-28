@@ -63,7 +63,7 @@ parse_args(int argc, char **argv, int argdefc, Argdef *argdefs)
 
     // Is set to 1 when a double-dash is found
     // and reads all arguments after it as raw.
-    int raw_escape = 0; 
+    int raw_escape = 0;
 
     int last_raw_arg_ind = 0;
     for (int i = 1; i < argc; i++) {

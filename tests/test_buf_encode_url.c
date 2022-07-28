@@ -28,7 +28,7 @@ test_buf_encode_url()
     esma_log_test("buf_encode_url()");
 
     Buffer *buf = new_buf(512);
-    
+
     buf_encode_url(buf, "asdf");
     esma_assert(!cmpstr(buf, "asdf"));
     reset_buf(buf);
