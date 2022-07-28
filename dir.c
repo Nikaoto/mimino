@@ -93,7 +93,7 @@ resolve_path(char *p1, char *p2)
 char*
 get_human_file_perms(File *f)
 {
-    char *str = xmalloc(10);
+    char *str = xmalloc(11);
     if (!str) return NULL;
 
     memset(str, '-', 9);
@@ -452,6 +452,7 @@ free_file_parts(File *f)
 void
 free_file(File *f)
 {
+    if (!f) return;
     free_file_parts(f);
     free(f);
 }

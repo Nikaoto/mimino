@@ -36,7 +36,8 @@ init_buf(Buffer *b, size_t data_size)
 void
 free_buf(Buffer *b)
 {
-    free(b->data);
+    if (!b) return;
+    if (b->data) free(b->data);
     free(b);
 }
 

@@ -456,11 +456,13 @@ close_connection(Server *s, nfds_t i)
     if (s->queue.n_conns_alloc > 20 &&
         s->queue.n_conns <= s->queue.n_conns_alloc / 4) {
         s->queue.n_conns_alloc = MAX(20, s->queue.n_conns_alloc / 2);
-        xrealloc(s->queue.pollfds,
-                 sizeof(s->queue.pollfds[0]) * s->queue.n_conns_alloc);
-        xrealloc(s->queue.conns,
+        s->queue.pollfds =
+            xrealloc(s->queue.pollfds,
+                     sizeof(s->queue.pollfds[0]) * s->queue.n_conns_alloc);
+        s->queue.conns =
+            xrealloc(s->queue.conns,
                  sizeof(s->queue.conns[0]) * s->queue.n_conns_alloc);
-        
+
     }
 }
 
@@ -720,9 +722,11 @@ serv_add_connection(Server *s, int newsock)
         s->queue.n_conns_alloc = MIN(
             s->queue.n_conns_alloc * 2,
             (nfds_t) s->conf.max_fds);
-        xrealloc(s->queue.pollfds,
+        s->queue.pollfds =
+            xrealloc(s->queue.pollfds,
                  sizeof(s->queue.pollfds[0]) * s->queue.n_conns_alloc);
-        xrealloc(s->queue.conns,
+        s->queue.conns =
+            xrealloc(s->queue.conns,
                  sizeof(s->queue.conns[0]) * s->queue.n_conns_alloc);
     }
 

@@ -724,6 +724,9 @@ free_http_response(Http_Response *res)
         free(res->file_path);
         res->file_path = NULL;
     }
+    free_buf(&res->head);
+    free_buf(&res->body);
+    free_file(&res->file);
     free(res);
     res = NULL;
 }
