@@ -1,7 +1,4 @@
 ## TODO
-
-- print own IP in LAN on startup (instead of 0.0.0.0:port)
-- handle more than 20 simultaneous connections
 - `ag TODO:`
 - add unit tests
   - for `parse_http_request`

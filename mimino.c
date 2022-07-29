@@ -16,6 +16,7 @@
 #include <poll.h>
 #include <dirent.h>
 #include <time.h>
+#include <ifaddrs.h>
 #include "mimino.h"
 #include "fdwatch.h"
 #include "xmalloc.h"
@@ -54,7 +55,7 @@ print_server_config(Server_Config *conf)
     printf("  .max_fds = %d,\n", conf->max_fds);
     printf("  .timeout_secs = %d,\n", conf->timeout_secs);
     printf("  .poll_interval_ms = %d,\n", conf->poll_interval_ms);
-    printf("}\n");
+    printf("}\n\n");
 }
 
 void
@@ -71,11 +72,48 @@ print_server_state(Server *serv)
     }
 }
 
+void
+print_server_lan_addr(char *port)
+{
+    struct ifaddrs *ifa;
+    if (getifaddrs(&ifa) != 0) {
+        perror("getifaddrs() inside print_server_lan_addr()");
+        return;
+    }
+
+    /* TODO: don't print the ip that's disabled (depending on
+       serv.conf.ipv4/serv.conf.ipv6) */
+    printf("Available on:\n");
+    char addr_str[INET6_ADDRSTRLEN];
+    for (struct ifaddrs *i = ifa; i; i = i->ifa_next) {
+        if (!i->ifa_addr) continue;
+        if (i->ifa_addr->sa_family != AF_INET &&
+            i->ifa_addr->sa_family != AF_INET6)
+            continue;
+
+        const char *succ = inet_ntop(
+            i->ifa_addr->sa_family,
+            get_in_addr(i->ifa_addr),
+            addr_str,
+            (socklen_t) INET6_ADDRSTRLEN);
+        if (!succ) {
+            perror("inet_ntop() on ifa_addr");
+            continue;
+        }
+
+        if (i->ifa_addr->sa_family == AF_INET6)
+            printf("  http://[%s]:%s\n", addr_str, port);
+        else
+            printf("  http://%s:%s\n", addr_str, port);
+    }
+    printf("\n");
+}
+
 int
 init_server(char *port, struct addrinfo *server_addrinfo)
 {
     int sockfd;
-    char ip_str[INET6_ADDRSTRLEN];
+    /* char ip_str[INET6_ADDRSTRLEN]; */
 
     struct addrinfo *getaddrinfo_res;
     struct addrinfo **ipv4_addrinfos = NULL;
@@ -100,11 +138,11 @@ init_server(char *port, struct addrinfo *server_addrinfo)
     // Populate ipv4_addrinfos and ipv6_addrinfos arrays
     for (struct addrinfo *rp = getaddrinfo_res; rp != NULL; rp = rp->ai_next) {
         // Log each getaddrinfo response
-        if (inet_ntop(rp->ai_family,
-                      get_in_addr(rp->ai_addr),
-                      ip_str, sizeof(ip_str))) {
-            printf("getaddrinfo response: %s:%s\n", ip_str, port);
-        }
+        /* if (inet_ntop(rp->ai_family, */
+        /*               get_in_addr(rp->ai_addr), */
+        /*               ip_str, sizeof(ip_str))) { */
+        /*     printf("getaddrinfo response: %s:%s\n", ip_str, port); */
+        /* } */
 
         switch (rp->ai_family) {
         case AF_INET:
@@ -829,7 +867,6 @@ main(int argc, char **argv)
 
     // Init server
     serv.time_now = time(NULL);
-    char ip_str[INET6_ADDRSTRLEN];
     struct addrinfo server_addrinfo = {0};
     int listen_sock = init_server(serv.conf.port, &server_addrinfo);
     if (listen_sock == -1) {
@@ -837,14 +874,8 @@ main(int argc, char **argv)
         return 1;
     }
 
-    // Print server IP. Exit if it's munged
-    if (inet_ntop(server_addrinfo.ai_family,
-                  get_in_addr(server_addrinfo.ai_addr),
-                  ip_str, sizeof(ip_str)) == NULL) {
-        perror("inet_ntop()");
-        return 1;
-    }
-    printf("Bound to %s:%s\n", ip_str, serv.conf.port);
+    // Print server LAN addresses
+    print_server_lan_addr(serv.conf.port);
 
     // Start listening
     int backlog = 10;
