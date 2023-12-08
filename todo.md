@@ -1,4 +1,6 @@
 ## TODO
+- check `thttpd` https://www.acme.com/software/thttpd/
+- check `mini_httpd` https://www.acme.com/software/mini_httpd/
 - `ag TODO:`
 - add unit tests
   - for `parse_http_request`
