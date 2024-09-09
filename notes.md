@@ -94,7 +94,7 @@ struct in_addr
 ```
 
 ## struct `sockaddr_in6`
-Can be cast to sockaddr. Holds address of ipv6 socket.
+Holds address of ipv6 socket.
 ```
 struct sockaddr_in6
 {
@@ -113,6 +113,7 @@ struct in6_addr
 
 ## struct `sockaddr_storage`
 Can be cast to `sockaddr`, `sockaddr_in` or `sockaddr_in6`. Fits all three.
+This exists because `sockaddr_in6` (26 bytes) is too big to fit into `sockaddr` (16 bytes).
 ```
 struct sockaddr_storage
 {
