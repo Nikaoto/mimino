@@ -4,6 +4,7 @@
 ```
 res = getaddrinfo(NULL, port, &hints, &res);
 sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+int reuse = 1;
 setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 bind(sockfd, res->ai_addr, res->ai_addrlen);
 listen(sockfd, backlog);
@@ -28,6 +29,7 @@ hints = {
 ```
 res = getaddrinfo("www.example.com", port, &hints, &res);
 sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+int reuse = 1;
 setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 // bind() is optional here as connect() will do it for us
 connect(sockfd, res->ai_addr, res->ai_addrlen);
